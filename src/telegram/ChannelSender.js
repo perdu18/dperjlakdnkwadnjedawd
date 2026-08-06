@@ -30,50 +30,79 @@ class ChannelSender {
       const fullCaption = messageFormatter.formatPost(post, accountInfo);
       const files = downloadResult.items;
 
-      // Telegram caption limit: 1024 chars
-      // اگه caption طولانی‌تر از 1024 باشه، کپشن رو کوتاه می‌کنیم
-      // ولی بخش‌های مهم (آمار، لینک، زمان) رو حفظ می‌کنیم
-      let caption = fullCaption;
-      if (caption.length > 1024) {
-        // استراتژی: کپشن پست رو کوتاه کن تا جا برای جزئیات باشه
-        const post = messageFormatter.formatPost(post, accountInfo);
-        // کوتاه کردن هوشمند: اگه کپشن پست خیلی طولانیه، اون رو truncate کن
-        // ولی header و footer رو نگه دار
-        caption = this._smartTruncateCaption(fullCaption, 1024);
+      // استراتژی برای کپشن‌های طولانی (طبق مستندات تلگرام core.telegram.org):
+      // - محدودیت caption فایل: 1024 کاراکتر
+      // - محدودیت پیام متنی: 4096 کاراکتر
+      //
+      // اگه کپشن طولانی‌تر از 1024 باشه و فایل داشته باشیم:
+      // ۱. فایل رو با یه caption کوتاه (header + آمار) می‌فرستیم
+      // ۲. بقیه متن (کپشن کامل + جزئیات) رو به‌عنوان پیام جداگانه می‌فرستیم
+
+      let fileCaption = fullCaption;
+      let extraTextMessage = null;
+
+      if (fullCaption.length > 1024 && files.length > 0) {
+        // Split: فایل با header + آمار، پیام متنی با کپشن + جزئیات
+        const lines = fullCaption.split('\n');
+        const headerLines = [];
+        const restLines = [];
+
+        let inHeader = true;
+        for (const line of lines) {
+          if (inHeader) {
+            headerLines.push(line);
+            if (line.includes('</blockquote>') && headerLines.length > 2) {
+              inHeader = false;
+              continue;
+            }
+          } else {
+            restLines.push(line);
+          }
+        }
+
+        fileCaption = headerLines.join('\n').slice(0, 1024);
+        extraTextMessage = restLines.join('\n').slice(0, 4096);
+      } else if (fullCaption.length > 4096) {
+        fileCaption = this._smartTruncateCaption(fullCaption, 4096);
       }
 
       let result;
 
       if (files.length === 0) {
-        // No media - just text (can be longer)
+        // No media - just text (can be up to 4096)
         result = await retryTgRequest(async () => {
-          return tgClient.sendMessage(fullCaption);
+          return tgClient.sendMessage(fileCaption);
         });
-        incrementDailyStat('posts_sent');
-        return result;
-      }
-
-      if (files.length === 1) {
-        // Single media
+      } else if (files.length === 1) {
         const file = files[0];
         const isVideo = file.mime?.startsWith('video/');
         const isImage = file.mime?.startsWith('image/');
 
         result = await retryTgRequest(async () => {
           return tgClient.sendFile(file.path, {
-            caption: caption,
+            caption: fileCaption,
             asPhoto: isImage,
             forceDocument: !isImage && !isVideo,
           });
         });
       } else {
-        // Album (carousel)
         const filePaths = files.map(f => f.path);
         result = await retryTgRequest(async () => {
           return tgClient.sendAlbum(filePaths, {
-            caption: caption,
+            caption: fileCaption,
           });
         });
+      }
+
+      // اگه کپشن طولانی بود، بقیه متن رو به‌عنوان پیام جداگانه بفرست
+      if (extraTextMessage) {
+        try {
+          await retryTgRequest(async () => {
+            return tgClient.sendMessage(extraTextMessage);
+          });
+        } catch (e) {
+          log.warn({ msg: 'Could not send extra text message', error: e.message });
+        }
       }
 
       incrementDailyStat('posts_sent');
@@ -83,7 +112,9 @@ class ChannelSender {
         type: post.type,
         filesCount: files.length,
         totalSize: formatBytes(files.reduce((s, f) => s + (f.size || 0), 0)),
-        captionLength: caption.length,
+        captionLength: fileCaption.length,
+        hasExtraText: !!extraTextMessage,
+        extraTextLength: extraTextMessage?.length || 0,
       });
 
       return result;
