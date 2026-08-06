@@ -214,26 +214,33 @@ class TgClient {
    * Build proxy config for teleproto (legacy sync version, no auto-find)
    */
   _buildProxyConfig() {
-    // This is called from init() which is synchronous
-    // For auto-find, use _buildProxyConfigWithAutoFind(true) after init
     const tgProxy = (config.telegram.proxy || process.env.TG_PROXY || '').trim();
 
     if (tgProxy && tgProxy !== 'auto') {
-      return this._parseProxyUrl(tgProxy);
+      // Reject placeholder values from .env.example
+      if (tgProxy.includes('user:pass@host:port') || tgProxy.includes('your_')) {
+        log.warn({ msg: 'TG_PROXY contains placeholder value, ignoring' });
+      } else {
+        return this._parseProxyUrl(tgProxy);
+      }
     }
 
-    // For 'auto', we return null here and the actual finding happens in connect()
     if (tgProxy === 'auto') {
-      log.info('TG_PROXY=auto - will find working SOCKS5 proxy during connect()');
+      log.info('TG_PROXY=auto - WSS will handle connection directly');
       return null;
     }
 
-    // Method 3: PROXY_STATIC_URL (if it's SOCKS5)
+    // PROXY_STATIC_URL (if it's SOCKS5)
     const proxyMode = (process.env.PROXY_MODE || 'none').toLowerCase();
     const staticUrl = process.env.PROXY_STATIC_URL;
 
     if (proxyMode === 'static' && staticUrl) {
-      return this._parseProxyUrl(staticUrl);
+      // Reject placeholder values
+      if (staticUrl.includes('user:pass@host:port') || staticUrl.includes('your_')) {
+        log.warn({ msg: 'PROXY_STATIC_URL contains placeholder value, ignoring' });
+      } else {
+        return this._parseProxyUrl(staticUrl);
+      }
     }
 
     return null;

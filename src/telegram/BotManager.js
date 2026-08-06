@@ -50,6 +50,8 @@ class BotManager {
   constructor() {
     this.bot = null;
     this.isRunning = false;
+    this.lastStartError = null;
+    this.lastStartErrorAt = null;
     this.adminIds = this._parseAdminIds();
     this._commandQueue = new Map();
     this._userStates = new Map(); // برای conversation state (مثل /add)
@@ -123,13 +125,27 @@ class BotManager {
 
       let httpProxyUrl = null;
 
-      if (tgProxy && tgProxy !== 'auto') {
+      // Validate URL before using
+      const isValidUrl = (url) => {
+        try {
+          new URL(url);
+          // Reject placeholder values from .env.example
+          if (url.includes('user:pass@host:port') || url.includes('your_')) {
+            return false;
+          }
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      if (tgProxy && tgProxy !== 'auto' && isValidUrl(tgProxy)) {
         if (tgProxy.startsWith('http://') || tgProxy.startsWith('https://')) {
           httpProxyUrl = tgProxy;
         }
       }
 
-      if (!httpProxyUrl && staticProxy) {
+      if (!httpProxyUrl && staticProxy && isValidUrl(staticProxy)) {
         if (staticProxy.startsWith('http://') || staticProxy.startsWith('https://')) {
           httpProxyUrl = staticProxy;
         }
@@ -145,6 +161,7 @@ class BotManager {
       }
 
       // Create bot instance
+      log.info('Creating TelegramBot instance...');
       this.bot = new TelegramBot(botToken, {
         polling: {
           interval: 300,
@@ -153,6 +170,8 @@ class BotManager {
         },
         request: requestOptions,
       });
+
+      log.info('TelegramBot instance created');
 
       this.bot.on('polling_error', (error) => {
         log.warn({ msg: 'Bot polling error', error: error.message, code: error.code });
@@ -164,16 +183,19 @@ class BotManager {
 
       // Register command handlers
       this._registerHandlers();
+      log.info('Command handlers registered');
 
       // Mark as running immediately
       this.isRunning = true;
+      this.lastStartError = null;
       log.info('✓ Bot Manager started and listening for commands');
 
       // Get bot info (with timeout)
       try {
-        const me = await this._withTimeout(this.bot.getMe(), 10000);
+        log.info('Calling bot.getMe()...');
+        const me = await this._withTimeout(this.bot.getMe(), 15000);
         log.info({
-          msg: 'Bot Manager connected',
+          msg: '✓ Bot Manager connected',
           botUsername: me.username,
           botId: me.id,
         });
@@ -192,7 +214,8 @@ class BotManager {
             { command: 'retry', description: '🔄 تلاش مجدد' },
             { command: 'cleanup', description: '🧹 پاکسازی' },
             { command: 'help', description: '❓ راهنما' },
-          ]), 10000);
+          ]), 15000);
+          log.info('Bot commands set');
         } catch (e) {
           log.warn({ msg: 'Could not set bot commands', error: e.message });
         }
@@ -210,10 +233,14 @@ class BotManager {
         }
       } catch (e) {
         log.warn({ msg: 'Could not get bot info (will continue anyway)', error: e.message });
+        this.lastStartError = `getMe failed: ${e.message}`;
+        this.lastStartErrorAt = new Date().toISOString();
       }
 
     } catch (e) {
       log.error({ msg: 'Bot Manager failed to start', error: e.message, stack: e.stack });
+      this.lastStartError = e.message;
+      this.lastStartErrorAt = new Date().toISOString();
     }
   }
 

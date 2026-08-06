@@ -289,6 +289,8 @@ function startHttpServer() {
         },
         botManager: {
           isRunning: botManager.isRunning,
+          lastStartError: botManager.lastStartError,
+          lastStartErrorAt: botManager.lastStartErrorAt,
         },
         proxy: proxyManager.getStats ? proxyManager.getStats() : null,
         config: {
