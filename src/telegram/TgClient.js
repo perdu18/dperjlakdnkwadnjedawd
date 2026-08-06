@@ -328,11 +328,11 @@ class TgClient {
   /**
    * Connect (using saved session)
    *
-   * اگه TG_PROXY=auto باشه، قبل از connect، یه پروکسی سالم پیدا می‌کنه.
-   * اگه connection شکست خورد و پروکسی auto بود، یه پروکسی دیگه رو امتحان می‌کنه.
+   * با WSS transport، تلگرام مستقیم وصل میشه و نیازی به پروکسی نیست.
+   * WSS مثل HTTPS از فایروال‌ها عبور می‌کنه.
    *
-   * مهم: این متد در صورت شکست، throw نمی‌کنه (تا ربات به کارش ادامه بده).
-   * به‌جاش، lastError رو ذخیره می‌کنه که از /debug قابل مشاهده است.
+   * اگه TG_PROXY=auto باشه ولی WSS فعال باشه، auto-find رو skip می‌کنیم
+   * چون WSS خودش کافیه.
    */
   async connect() {
     if (!this.client) await this.init();
@@ -347,98 +347,54 @@ class TgClient {
     const tgProxy = (config.telegram.proxy || process.env.TG_PROXY || '').trim();
     const isAutoProxy = tgProxy === 'auto';
 
-    // If auto proxy, find a working one before connecting
-    // با timeout ۶۰ ثانیه‌ای تا ربات hang نشه
-    if (isAutoProxy && !this._autoFoundProxy) {
-      log.info('TG_PROXY=auto - finding working SOCKS5 proxy before connect...');
+    // اگه TG_PROXY=auto باشه، ولی ما از WSS استفاده می‌کنیم،
+    // نیازی به پروکسی نیست — WSS خودش از فایروال‌ها عبور می‌کنه
+    // پس auto-find رو skip می‌کنیم
+    if (isAutoProxy) {
+      log.info('TG_PROXY=auto detected, but WSS transport is active — skipping proxy search (WSS goes through firewalls directly)');
+      // Force no proxy
+      this._autoFoundProxy = null;
+    } else if (tgProxy && tgProxy !== 'auto') {
+      // اگه پروکسی مشخص شده، از اون استفاده کن
+      log.info({ msg: 'Using explicit TG_PROXY', proxy: tgProxy.slice(0, 30) });
+      const proxyConfig = this._parseProxyUrl(tgProxy);
+      if (proxyConfig) {
+        this._autoFoundProxy = { teleprotoConfig: proxyConfig };
+        await this.init();  // Recreate client with proxy
+      }
+    }
 
-      // Race بین auto-find و timeout
-      const findPromise = this._buildProxyConfigWithAutoFind(true);
-      const timeoutPromise = new Promise((resolve) => {
-        setTimeout(() => resolve('__TIMEOUT__'), 60000);  // 60 seconds max
+    log.info('Connecting to Telegram via WSS...');
+    this.connectionAttempts++;
+
+    try {
+      await this.client.connect();
+
+      if (!(await this.client.isUserAuthorized())) {
+        throw new Error('Session is not authorized. Run `npm run setup:telegram` again.');
+      }
+
+      this.me = await this.client.getMe();
+      this.isConnected = true;
+      this.lastError = null;
+
+      log.info({
+        msg: '✓ Telegram connected via WSS',
+        phone: this.me.phone,
+        firstName: this.me.firstName,
+        username: this.me.username,
+        userId: this.me.id.toString(),
       });
 
-      const proxyConfig = await Promise.race([findPromise, timeoutPromise]);
+      return true;
+    } catch (e) {
+      this.lastError = e.message;
+      this.lastErrorAt = new Date().toISOString();
+      log.error({ msg: 'Telegram WSS connection failed', error: e.message });
 
-      if (proxyConfig === '__TIMEOUT__') {
-        log.warn('Auto-find proxy timed out after 60s - trying direct connection');
-        // Continue without proxy (will likely fail, but at least won't hang)
-      } else if (proxyConfig) {
-        // Recreate client with the found proxy
-        await this.init();
-      } else {
-        this.lastError = 'Could not find any working SOCKS5 proxy for Telegram';
-        this.lastErrorAt = new Date().toISOString();
-        log.error({ msg: this.lastError });
-
-        // Don't return false immediately — try direct connection as fallback
-        log.info('Trying direct connection as fallback...');
-      }
+      // Don't throw — let the bot continue running
+      return false;
     }
-
-    const maxRetries = isAutoProxy ? 3 : 1;
-    let lastError = null;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      this.connectionAttempts++;
-      try {
-        log.info({ msg: 'Connecting to Telegram...', attempt, maxRetries });
-        await this.client.connect();
-
-        if (!(await this.client.isUserAuthorized())) {
-          throw new Error('Session is not authorized. Run `npm run setup:telegram` again.');
-        }
-
-        this.me = await this.client.getMe();
-        this.isConnected = true;
-        this.lastError = null;  // Clear error on success
-
-        log.info({
-          msg: 'Telegram connected',
-          phone: this.me.phone,
-          firstName: this.me.firstName,
-          username: this.me.username,
-          userId: this.me.id.toString(),
-        });
-
-        return true;
-      } catch (e) {
-        lastError = e;
-        log.warn({
-          msg: 'Telegram connection attempt failed',
-          attempt,
-          maxRetries,
-          error: e.message,
-        });
-
-        if (attempt < maxRetries && isAutoProxy) {
-          // Try finding another proxy
-          log.info('Trying another SOCKS5 proxy...');
-          const newProxy = await this._buildProxyConfigWithAutoFind(true);
-
-          if (newProxy) {
-            // Recreate client with new proxy
-            await this.init();
-            await this.client.connect(); // Re-init session
-
-            // Wait a bit before retry
-            await new Promise(r => setTimeout(r, 2000));
-          } else {
-            log.error('No more working SOCKS5 proxies available');
-            break;
-          }
-        }
-      }
-    }
-
-    // Store error for debugging
-    this.lastError = lastError?.message || 'Telegram connection failed';
-    this.lastErrorAt = new Date().toISOString();
-
-    log.error({ msg: 'Telegram connection failed', error: this.lastError });
-
-    // Don't throw - let the bot continue running
-    return false;
   }
 
   /**
