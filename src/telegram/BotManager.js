@@ -220,12 +220,15 @@ class BotManager {
           log.warn({ msg: 'Could not set bot commands', error: e.message });
         }
 
-        // Notify admins
+        // Notify admins — فقط در اینجا ارسال میشه (نه در index.js)
         try {
           await this._notifyAdmins(
             `🤖 <b>ربات مدیریت راه‌اندازی شد</b>\n\n` +
             `🤖 ربات: @${me.username}\n` +
             `🆔 آیدی: <code>${me.id}</code>\n\n` +
+            `✅ تلگرام: ${tgClient.isReady() ? 'متصل' : 'در حال اتصال...'}\n` +
+            `📸 اینستاگرام: ${igClient.isLoggedIn ? 'متصل' : 'قطع'}\n` +
+            `📊 اکانت‌های مانیتور: ${config.monitoring.targetAccounts.length}\n\n` +
             `برای دیدن منوی اصلی: /menu`
           );
         } catch (e) {

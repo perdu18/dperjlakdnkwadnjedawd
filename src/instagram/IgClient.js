@@ -214,6 +214,32 @@ class IgClient {
     }
 
     const u = user.user;
+
+    // topsearch معمولاً follower_count برنمی‌گردونه
+    // اگه موجود نبود، از users/{pk}/info/ بگیریم
+    let followerCount = u.follower_count || 0;
+    let followingCount = u.following_count || 0;
+    let mediaCount = u.media_count || 0;
+    let biography = null;
+
+    if (!followerCount && u.pk) {
+      try {
+        log.debug({ msg: 'Fetching user info via users/{pk}/info/', pk: u.pk });
+        const infoRes = await this.axiosInstance.get(`${IG_API}/users/${u.pk}/info/`, {
+          headers: { 'Referer': `${IG_BASE}/${username}/` },
+        });
+
+        if (infoRes.data?.user) {
+          followerCount = infoRes.data.user.follower_count || 0;
+          followingCount = infoRes.data.user.following_count || 0;
+          mediaCount = infoRes.data.user.media_count || 0;
+          biography = infoRes.data.user.biography || null;
+        }
+      } catch (e) {
+        log.debug({ msg: 'users/{pk}/info/ failed', error: e.message });
+      }
+    }
+
     return {
       pk: u.pk,
       username: u.username,
@@ -221,10 +247,10 @@ class IgClient {
       isPrivate: u.is_private,
       isVerified: u.is_verified,
       profilePicUrl: u.profile_pic_url,
-      followerCount: u.follower_count,
-      followingCount: u.following_count,
-      mediaCount: u.media_count,
-      biography: null,
+      followerCount,
+      followingCount,
+      mediaCount,
+      biography,
     };
   }
 

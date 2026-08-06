@@ -27,18 +27,27 @@ class ChannelSender {
 
     this.active++;
     try {
-      const caption = messageFormatter.formatPost(post, accountInfo);
+      const fullCaption = messageFormatter.formatPost(post, accountInfo);
       const files = downloadResult.items;
 
       // Telegram caption limit: 1024 chars
-      const truncatedCaption = truncate(caption, 1024);
+      // اگه caption طولانی‌تر از 1024 باشه، کپشن رو کوتاه می‌کنیم
+      // ولی بخش‌های مهم (آمار، لینک، زمان) رو حفظ می‌کنیم
+      let caption = fullCaption;
+      if (caption.length > 1024) {
+        // استراتژی: کپشن پست رو کوتاه کن تا جا برای جزئیات باشه
+        const post = messageFormatter.formatPost(post, accountInfo);
+        // کوتاه کردن هوشمند: اگه کپشن پست خیلی طولانیه، اون رو truncate کن
+        // ولی header و footer رو نگه دار
+        caption = this._smartTruncateCaption(fullCaption, 1024);
+      }
 
       let result;
 
       if (files.length === 0) {
-        // No media - just text
+        // No media - just text (can be longer)
         result = await retryTgRequest(async () => {
-          return tgClient.sendMessage(caption);
+          return tgClient.sendMessage(fullCaption);
         });
         incrementDailyStat('posts_sent');
         return result;
@@ -52,7 +61,7 @@ class ChannelSender {
 
         result = await retryTgRequest(async () => {
           return tgClient.sendFile(file.path, {
-            caption: truncatedCaption,
+            caption: caption,
             asPhoto: isImage,
             forceDocument: !isImage && !isVideo,
           });
@@ -62,7 +71,7 @@ class ChannelSender {
         const filePaths = files.map(f => f.path);
         result = await retryTgRequest(async () => {
           return tgClient.sendAlbum(filePaths, {
-            caption: truncatedCaption,
+            caption: caption,
           });
         });
       }
@@ -74,12 +83,49 @@ class ChannelSender {
         type: post.type,
         filesCount: files.length,
         totalSize: formatBytes(files.reduce((s, f) => s + (f.size || 0), 0)),
+        captionLength: caption.length,
       });
 
       return result;
     } finally {
       this.active--;
     }
+  }
+
+  /**
+   * Smart truncate caption to fit Telegram's 1024 char limit
+   * حفظ کردن بخش‌های مهم: header, آمار اکانت, لینک، زمان، footer
+   */
+  _smartTruncateCaption(fullCaption, maxLength = 1024) {
+    if (fullCaption.length <= maxLength) return fullCaption;
+
+    const lines = fullCaption.split('\n');
+    const result = [];
+
+    // همیشه header (خط اول) و footer (خط آخر) رو نگه دار
+    // و بخش‌های مهم (🔗, 🕐, 📊, 📈) رو حفظ کن
+    const importantKeywords = ['━━━', '👤', '📊', '🔗', '🕐', '🤖', '📈', '🎵', '📍'];
+
+    for (const line of lines) {
+      const isImportant = importantKeywords.some(kw => line.includes(kw));
+      const currentLength = result.join('\n').length;
+
+      if (isImportant) {
+        // همیشه اضافه کن
+        result.push(line);
+      } else if (currentLength + line.length + 1 < maxLength - 100) {
+        // اضافه کن اگه جا داره
+        result.push(line);
+      }
+      // اگه جا نداره، skip کن
+    }
+
+    let truncated = result.join('\n');
+    if (truncated.length > maxLength) {
+      truncated = truncated.slice(0, maxLength - 10) + '...';
+    }
+
+    return truncated;
   }
 
   /**

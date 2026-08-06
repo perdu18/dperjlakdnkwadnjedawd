@@ -134,18 +134,7 @@ async function initServices() {
 
       if (connected) {
         log.info('✓ Telegram MTProto connected');
-        try {
-          // پیام راه‌اندازی فقط به ادمین‌ها ارسال میشه (نه کانال)
-          await botManager.notifyAdmins(
-            '🤖 <b>ربات مانیتور اینستاگرام راه‌اندازی شد</b>\n\n' +
-            `✅ تلگرام: <b>متصل</b>\n` +
-            `📸 اینستاگرام: <b>${igClient.isLoggedIn ? 'متصل' : 'قطع'}</b>\n` +
-            `📊 اکانت‌های مانیتور: <b>${config.monitoring.targetAccounts.length}</b>\n\n` +
-            `<i>برای مدیریت ربات از دستور /menu استفاده کنید.</i>`
-          );
-        } catch (e) {
-          log.warn({ msg: 'Could not send startup notification', error: e.message });
-        }
+        // پیام راه‌اندازی فقط توسط BotManager ارسال میشه (نه اینجا)
       } else {
         log.warn({ msg: 'Telegram MTProto not connected', error: tgClient.lastError });
         try {
