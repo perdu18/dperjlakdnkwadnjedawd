@@ -14,8 +14,7 @@
     "setup": "npm run setup:telegram && npm run setup:instagram",
     "daemon": "node src/index.js",
     "healthcheck": "node -e \"import('./src/utils/Logger.js').then(m => m.default.info('Health OK'))\"",
-    "export-session": "node scripts/export-session-base64.js",
-    "postinstall": "playwright install chromium"
+    "export-session": "node scripts/export-session-base64.js"
   },
   "dependencies": {
     "async-mutex": "^0.5.0",
@@ -25,7 +24,6 @@
     "file-type": "^19.4.0",
     "https-proxy-agent": "^7.0.5",
     "input": "^1.0.1",
-    "instagram-private-api": "^1.46.1",
     "kleur": "^4.1.5",
     "ky": "^1.7.2",
     "node-cron": "^3.0.3",
@@ -33,7 +31,6 @@
     "p-retry": "^6.2.0",
     "pino": "^9.4.0",
     "pino-pretty": "^11.2.2",
-    "playwright": "^1.62.1",
     "socks-proxy-agent": "^8.0.4",
     "teleproto": "^1.228.5",
     "undici": "^6.19.8"
