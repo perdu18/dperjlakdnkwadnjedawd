@@ -1,0 +1,65 @@
+{
+  "name": "ig-tg-monitor-bot",
+  "version": "1.0.0",
+  "description": "Advanced Telegram bot that monitors Instagram accounts (posts + stories) and forwards to Telegram channels via MTProto user session",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "setup:telegram": "node scripts/setup-telegram.js",
+    "setup:instagram": "node scripts/setup-instagram.js",
+    "setup": "npm run setup:telegram && npm run setup:instagram",
+    "daemon": "node src/index.js",
+    "healthcheck": "node -e \"import('./src/utils/Logger.js').then(m => m.default.info('Health OK'))\"",
+    "export-session": "node scripts/export-session-base64.js",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "async-mutex": "^0.5.0",
+    "axios": "^1.7.7",
+    "delay": "^6.0.0",
+    "dotenv": "^16.4.5",
+    "file-type": "^19.4.0",
+    "https-proxy-agent": "^7.0.5",
+    "input": "^1.0.1",
+    "instagram-private-api": "^1.46.1",
+    "kleur": "^4.1.5",
+    "ky": "^1.7.2",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^1.2.0",
+    "p-retry": "^6.2.0",
+    "pino": "^9.4.0",
+    "pino-pretty": "^11.2.2",
+    "playwright": "^1.62.1",
+    "socks-proxy-agent": "^8.0.4",
+    "teleproto": "^1.228.5",
+    "undici": "^6.19.8"
+  },
+  "optionalDependencies": {
+    "bufferutil": "^4.0.8",
+    "utf-8-validate": "^6.0.4"
+  },
+  "keywords": [
+    "telegram",
+    "instagram",
+    "bot",
+    "scraper",
+    "mtproto",
+    "monitoring",
+    "nodejs",
+    "esm"
+  ],
+  "author": "",
+  "license": "MIT",
+  "allowScripts": {
+    "better-sqlite3@11.10.0": true,
+    "bufferutil@4.1.0": true,
+    "core-js@2.6.12": true,
+    "es5-ext@0.10.64": true,
+    "utf-8-validate@5.0.10": true,
+    "utf-8-validate@6.0.6": true
+  }
+}

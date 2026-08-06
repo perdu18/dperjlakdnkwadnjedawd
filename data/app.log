@@ -1,0 +1,548 @@
+{"level":30,"time":1785984758381,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785984758381,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785984758382,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM"}
+{"level":30,"time":1785984758382,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785984758383,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785984758383,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785984758391,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785984758398,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785984758398,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785984758400,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785984758402,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785984759362,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785984759545,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785984759560,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785984759565,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785984759565,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785984759568,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":40,"time":1785984763794,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"API verification failed, but cookies exist — trusting session"}
+{"level":30,"time":1785984763794,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785984763799,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true}
+{"level":30,"time":1785984763799,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785984765298,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram connected","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1785984765560,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Channel resolved"}
+{"level":30,"time":1785984765883,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"120s","cron":"*/2 * * * *"}
+{"level":30,"time":1785984765884,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1785984765888,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1785984765888,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 Bot is now running! Press Ctrl+C to stop."}
+{"level":30,"time":1785984765888,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785984770895,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Running initial poll..."}
+{"level":30,"time":1785984770895,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785984770896,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":40,"time":1785984778665,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":30,"time":1785984780997,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785984786412,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785984796931,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785984810983,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":4,"retriesLeft":0,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":50,"time":1785984810984,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Failed to poll posts for account","username":"botfoori","error":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":30,"time":1785984812989,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785984840501,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785984840501,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785984840501,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785984846034,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785984853990,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785984862909,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785984876041,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":4,"retriesLeft":0,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":50,"time":1785984876041,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Failed to poll posts for account","username":"botfoori","error":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":30,"time":1785984900074,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785984960611,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785984960612,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785984960627,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785984967644,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785984977357,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785984987442,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785985002251,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":4,"retriesLeft":0,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":50,"time":1785985002252,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Failed to poll posts for account","username":"botfoori","error":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":30,"time":1785985020070,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785985080483,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785985080483,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785985080484,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785985086764,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785985096325,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785985107351,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785985121431,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":4,"retriesLeft":0,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":50,"time":1785985121431,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Failed to poll posts for account","username":"botfoori","error":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":30,"time":1785985126671,"pid":9768,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785985670103,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785985670103,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785985670103,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM"}
+{"level":30,"time":1785985670103,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785985670104,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785985670104,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785985670107,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785985670107,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785985670107,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785985670115,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785985670122,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785985670122,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785985671052,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785985671237,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785985671261,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785985671274,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785985671275,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785985671281,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":40,"time":1785985700358,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"API verification failed, but cookies exist — trusting session"}
+{"level":30,"time":1785985700358,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785985700363,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true}
+{"level":30,"time":1785985700363,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785985703348,"pid":12924,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785985709592,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785985709592,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785985709592,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM"}
+{"level":30,"time":1785985709592,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785985709593,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785985709594,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785985709596,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785985709597,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785985709597,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785985709601,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785985709609,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785985709609,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":40,"time":1785985721685,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Failed to download proxy list","url":"https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt","error":"getaddrinfo ENOTFOUND raw.githubusercontent.com"}
+{"level":30,"time":1785985721685,"pid":9680,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":0}
+{"level":30,"time":1785985742170,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785985742171,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785985742171,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM"}
+{"level":30,"time":1785985742171,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785985742171,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785985742172,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785985742175,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785985742176,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785985742176,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785985742180,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785985742191,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785985742191,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785985744476,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785985744682,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785985744698,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785985744704,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785985744704,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785985744707,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":40,"time":1785985835379,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"API verification failed, but cookies exist — trusting session"}
+{"level":30,"time":1785985835380,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785985835386,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true}
+{"level":30,"time":1785985835386,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785985861024,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram connected","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1785985861347,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Channel resolved"}
+{"level":30,"time":1785985861646,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"120s","cron":"*/2 * * * *"}
+{"level":30,"time":1785985861647,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1785985861650,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1785985861650,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 Bot is now running! Press Ctrl+C to stop."}
+{"level":30,"time":1785985861651,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785985866656,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Running initial poll..."}
+{"level":30,"time":1785985866659,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785985866661,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785985920273,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785985926690,"pid":2196,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785985931418,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785985931419,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785985931419,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM"}
+{"level":30,"time":1785985931419,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785985931420,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785985931420,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785985931423,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785985931423,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785985931423,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785985931428,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785985931436,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785985931436,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785985932457,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785985932653,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785985932683,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785985932688,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785985932688,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785985932690,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":40,"time":1785985937753,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"API verification failed, but cookies exist — trusting session"}
+{"level":30,"time":1785985937754,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785985937761,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true}
+{"level":30,"time":1785985937762,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785985939316,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram connected","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1785985939602,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Channel resolved"}
+{"level":30,"time":1785985939923,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"120s","cron":"*/2 * * * *"}
+{"level":30,"time":1785985939923,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1785985939926,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1785985939926,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 Bot is now running! Press Ctrl+C to stop."}
+{"level":30,"time":1785985939927,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785985944929,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Running initial poll..."}
+{"level":30,"time":1785985944932,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785985944933,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":40,"time":1785985950278,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785985958816,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785985971390,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":30,"time":1785985980255,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785985985324,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":4,"retriesLeft":0,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":50,"time":1785985985324,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Failed to poll posts for account","username":"botfoori","error":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":30,"time":1785985987328,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785986040862,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785986040862,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785986040862,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785986050046,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785986060033,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785986071799,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":40,"time":1785986085051,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":4,"retriesLeft":0,"message":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":50,"time":1785986085051,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Failed to poll posts for account","username":"botfoori","error":"Received invalid Socks5 initial handshake (invalid socks version)"}
+{"level":30,"time":1785986100380,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785986145616,"pid":9036,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785986155111,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785986155112,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785986155112,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM"}
+{"level":30,"time":1785986155112,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785986155113,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785986155114,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785986155118,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785986155118,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785986155118,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785986155121,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785986155134,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785986155135,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785986155968,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785986156144,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785986156165,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785986156170,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785986156171,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785986156174,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":40,"time":1785986400672,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"API verification failed, but cookies exist — trusting session"}
+{"level":30,"time":1785986400672,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785986400677,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true}
+{"level":30,"time":1785986400678,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785986402316,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram connected","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1785986402623,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Channel resolved"}
+{"level":30,"time":1785986403042,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"120s","cron":"*/2 * * * *"}
+{"level":30,"time":1785986403043,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1785986403048,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1785986403048,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 Bot is now running! Press Ctrl+C to stop."}
+{"level":30,"time":1785986403048,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785986407882,"pid":4188,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785987356529,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785987356530,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785987356530,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM"}
+{"level":30,"time":1785987356530,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785987356530,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785987356531,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785987356533,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785987356534,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785987356534,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785987356537,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785987356546,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785987356546,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785987357422,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785987357595,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785987357618,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785987357621,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785987357622,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785987357624,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":40,"time":1785987432010,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"API verification failed, but cookies exist — trusting session"}
+{"level":30,"time":1785987432010,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785987432017,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true,"layer":"228+ (teleproto)","hasProxy":false}
+{"level":30,"time":1785987432017,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785987433689,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram connected","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1785987433948,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Channel resolved"}
+{"level":30,"time":1785987434258,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"120s","cron":"*/2 * * * *"}
+{"level":30,"time":1785987434260,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1785987434265,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1785987434265,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 Bot is now running! Press Ctrl+C to stop."}
+{"level":30,"time":1785987434267,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785987439267,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Running initial poll..."}
+{"level":30,"time":1785987439268,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785987439268,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785987480741,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785987504239,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"Proxy connection timed out"}
+{"level":30,"time":1785987540282,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785987568525,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"Proxy connection timed out"}
+{"level":30,"time":1785987600882,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785987634797,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"Proxy connection timed out"}
+{"level":30,"time":1785987660426,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785987660734,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785987660735,"pid":6076,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling workers stopped"}
+{"level":30,"time":1785988177646,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785988177646,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785988177647,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM"}
+{"level":30,"time":1785988177647,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785988177649,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785988177649,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785988177655,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785988177655,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785988177656,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785988177659,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785988177673,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785988177673,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785988184826,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785988184998,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785988185015,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785988185020,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785988185021,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785988185025,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":40,"time":1785988429398,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"API verification failed, but cookies exist — trusting session"}
+{"level":30,"time":1785988429398,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785988429405,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true,"layer":"228+ (teleproto)","hasProxy":false}
+{"level":30,"time":1785988429405,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785988430964,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram connected","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1785988431251,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Channel resolved"}
+{"level":30,"time":1785988431626,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"120s","cron":"*/2 * * * *"}
+{"level":30,"time":1785988431628,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1785988431632,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1785988431632,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 Bot is now running! Press Ctrl+C to stop."}
+{"level":30,"time":1785988431633,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785988436637,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Running initial poll..."}
+{"level":30,"time":1785988436640,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785988436641,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785988440736,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785988500239,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785988560758,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785988602415,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"Proxy connection ended before receiving CONNECT response"}
+{"level":30,"time":1785988620241,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785988680662,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785988740122,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785988771521,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"Proxy connection ended before receiving CONNECT response"}
+{"level":30,"time":1785988800691,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785988860306,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785988920782,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785988941758,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"Proxy connection ended before receiving CONNECT response"}
+{"level":30,"time":1785988980269,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785989040861,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785989100410,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785989117611,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":4,"retriesLeft":0,"message":"Proxy connection ended before receiving CONNECT response"}
+{"level":50,"time":1785989117611,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Failed to poll posts for account","username":"botfoori","error":"Proxy connection ended before receiving CONNECT response"}
+{"level":30,"time":1785989119618,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785989160900,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785989160900,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785989160901,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785989212658,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785989212658,"pid":9096,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling workers stopped"}
+{"level":30,"time":1785989220003,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785989220004,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785989220004,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM"}
+{"level":30,"time":1785989220004,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785989220005,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785989220005,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785989220010,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785989220011,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785989220011,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785989220017,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785989220046,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785989220046,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785989220979,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785989221160,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785989221172,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785989221177,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785989221178,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785989221181,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":40,"time":1785989222575,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"API verification failed, but cookies exist — trusting session"}
+{"level":30,"time":1785989222575,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785989222581,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true,"layer":"228+ (teleproto)","hasProxy":false}
+{"level":30,"time":1785989222582,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785989224047,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram connected","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1785989224313,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Channel resolved"}
+{"level":30,"time":1785989224632,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"120s","cron":"*/2 * * * *"}
+{"level":30,"time":1785989224634,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1785989224640,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1785989224640,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 Bot is now running! Press Ctrl+C to stop."}
+{"level":30,"time":1785989224642,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785989229641,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Running initial poll..."}
+{"level":30,"time":1785989229643,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785989229644,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":40,"time":1785989233108,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"User @botfoori not found"}
+{"level":40,"time":1785989239166,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"User @botfoori not found"}
+{"level":40,"time":1785989246456,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"User @botfoori not found"}
+{"level":40,"time":1785989259845,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":4,"retriesLeft":0,"message":"User @botfoori not found"}
+{"level":50,"time":1785989259845,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Failed to poll posts for account","username":"botfoori","error":"User @botfoori not found"}
+{"level":30,"time":1785989261850,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":30,"time":1785989280019,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785989280019,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785989280020,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling stories for accounts","count":1}
+{"level":40,"time":1785989283550,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":1,"retriesLeft":3,"message":"User @botfoori not found"}
+{"level":40,"time":1785989288578,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":2,"retriesLeft":2,"message":"User @botfoori not found"}
+{"level":40,"time":1785989298288,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":3,"retriesLeft":1,"message":"User @botfoori not found"}
+{"level":40,"time":1785989311611,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Retry attempt failed","attempt":4,"retriesLeft":0,"message":"User @botfoori not found"}
+{"level":50,"time":1785989311612,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Failed to poll posts for account","username":"botfoori","error":"User @botfoori not found"}
+{"level":30,"time":1785989335090,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785989335090,"pid":5372,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling workers stopped"}
+{"level":30,"time":1785990333007,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785990333007,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785990333007,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM (teleproto)"}
+{"level":30,"time":1785990333007,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785990333008,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785990333008,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785990333011,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785990333011,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785990333014,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Initializing services in background..."}
+{"level":30,"time":1785990333014,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785990333022,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785990333030,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785990333030,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785990333053,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785990333927,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785990334096,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785990334108,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785990334112,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785990334113,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785990334115,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":30,"time":1785990338146,"pid":5812,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785990509571,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785990509572,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785990509572,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM (teleproto)"}
+{"level":30,"time":1785990509572,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785990509572,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785990509573,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785990509575,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785990509575,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785990509578,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Initializing services in background..."}
+{"level":30,"time":1785990509578,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785990509585,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785990509592,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785990509592,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785990509616,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785990510367,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785990510563,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785990510604,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785990510610,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785990510610,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram Web API client initialized","username":"academy_barfi"}
+{"level":30,"time":1785990510614,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored from file"}
+{"level":30,"time":1785990530081,"pid":9476,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785992379334,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785992379334,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785992379334,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM (teleproto)"}
+{"level":30,"time":1785992379334,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785992379335,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785992379335,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785992379338,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785992379338,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785992379340,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Initializing services in background..."}
+{"level":30,"time":1785992379341,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785992379349,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785992379356,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785992379356,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785992379375,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785992380157,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785992380341,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785992380352,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785992380356,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785992380356,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram client initialized (Playwright-based)","username":"academy_barfi"}
+{"level":30,"time":1785992380357,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session file loaded","cookieCount":10,"hasSessionId":true,"hasDsUserId":true,"username":"academy_barfi"}
+{"level":30,"time":1785992380357,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored"}
+{"level":40,"time":1785992381270,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verification via API failed","status":404}
+{"level":30,"time":1785992381270,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785992381270,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Instagram client ready"}
+{"level":30,"time":1785992381276,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true,"layer":"228+ (teleproto)","hasProxy":false}
+{"level":30,"time":1785992381276,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785992382831,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram connected","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1785992382831,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Telegram client ready"}
+{"level":30,"time":1785992383103,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Channel resolved"}
+{"level":30,"time":1785992383433,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"120s","cron":"*/2 * * * *"}
+{"level":30,"time":1785992383436,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1785992383436,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Polling workers started"}
+{"level":30,"time":1785992383437,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1785992383437,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 All services initialized! Bot is now fully running."}
+{"level":30,"time":1785992388439,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Running initial poll..."}
+{"level":30,"time":1785992388442,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785992388443,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for account","username":"botfoori","hasPk":false,"lastPostPk":null}
+{"level":30,"time":1785992388443,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785992388444,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Fetching user info","username":"botfoori"}
+{"level":40,"time":1785992388445,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"PROXY_MODE=list detected - using no proxy for IG fetches","reason":"Free proxies are unstable for IG sessions"}
+{"level":30,"time":1785992388445,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Launching browser for IG fetch","hasProxy":false}
+{"level":30,"time":1785992393921,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"User info fetched","username":"botfoori"}
+{"level":30,"time":1785992393951,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"User info fetched","username":"botfoori","pk":null,"isPrivate":false}
+{"level":30,"time":1785992393952,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Fetching user feed","username":"botfoori","limit":5}
+{"level":30,"time":1785992397975,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Posts fetched","count":4,"username":"botfoori"}
+{"level":30,"time":1785992397996,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Feed fetched","username":"botfoori","postCount":4,"posts":[{"pk":"Dbr5MJniPrx","shortcode":"Dbr5MJniPrx","type":"photo","takenAt":null},{"pk":"DbruSFeCJ2i","shortcode":"DbruSFeCJ2i","type":"photo","takenAt":null},{"pk":"Dbrt6ZiCBG0","shortcode":"Dbrt6ZiCBG0","type":"photo","takenAt":null},{"pk":"DKsjCLQNDIl","shortcode":"DKsjCLQNDIl","type":"photo","takenAt":null}]}
+{"level":30,"time":1785992397996,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"New posts analysis","username":"botfoori","totalFetched":4,"newCount":4,"lastSeenPk":null,"newestPk":"Dbr5MJniPrx"}
+{"level":30,"time":1785992397996,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"New posts detected","username":"botfoori","count":4}
+{"level":30,"time":1785992398000,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Processing job","type":"post","account":"botfoori","mediaPk":"DKsjCLQNDIl","sentItemId":1}
+{"level":50,"time":1785992398002,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Job failed","type":"post","account":"botfoori","mediaPk":"DKsjCLQNDIl","error":"No media URLs to download"}
+{"level":30,"time":1785992398005,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Processing job","type":"post","account":"botfoori","mediaPk":"Dbrt6ZiCBG0","sentItemId":2}
+{"level":50,"time":1785992398006,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Job failed","type":"post","account":"botfoori","mediaPk":"Dbrt6ZiCBG0","error":"No media URLs to download"}
+{"level":30,"time":1785992399021,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Processing job","type":"post","account":"botfoori","mediaPk":"DbruSFeCJ2i","sentItemId":3}
+{"level":30,"time":1785992399022,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Processing job","type":"post","account":"botfoori","mediaPk":"Dbr5MJniPrx","sentItemId":4}
+{"level":50,"time":1785992399022,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Job failed","type":"post","account":"botfoori","mediaPk":"DbruSFeCJ2i","error":"No media URLs to download"}
+{"level":50,"time":1785992399024,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Job failed","type":"post","account":"botfoori","mediaPk":"Dbr5MJniPrx","error":"No media URLs to download"}
+{"level":30,"time":1785992399036,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785992399037,"pid":9876,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling workers stopped"}
+{"level":30,"time":1785993429715,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785993429715,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1785993429715,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM (teleproto)"}
+{"level":30,"time":1785993429715,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1785993429716,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1785993429716,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1785993429719,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1785993429719,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1785993429722,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Initializing services in background..."}
+{"level":30,"time":1785993429722,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1785993429724,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1785993429731,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1785993429732,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1785993429751,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1785993430522,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2878}
+{"level":30,"time":1785993430710,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":2017}
+{"level":30,"time":1785993430741,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4895}
+{"level":30,"time":1785993430753,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1785993430754,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram client initialized (Playwright-based)","username":"academy_barfi"}
+{"level":30,"time":1785993430755,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session file loaded","cookieCount":10,"hasSessionId":true,"hasDsUserId":true,"username":"academy_barfi"}
+{"level":30,"time":1785993430755,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored"}
+{"level":40,"time":1785993431727,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verification via API failed","status":404}
+{"level":30,"time":1785993431728,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1785993431728,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Instagram client ready"}
+{"level":30,"time":1785993431731,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true,"layer":"228+ (teleproto)","hasProxy":false}
+{"level":30,"time":1785993431731,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram..."}
+{"level":30,"time":1785993433248,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram connected","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1785993433248,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Telegram client ready"}
+{"level":30,"time":1785993433518,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Channel resolved"}
+{"level":30,"time":1785993433815,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"120s","cron":"*/2 * * * *"}
+{"level":30,"time":1785993433816,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1785993433817,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Polling workers started"}
+{"level":30,"time":1785993433817,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1785993433817,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 All services initialized! Bot is now fully running."}
+{"level":30,"time":1785993438819,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Running initial poll..."}
+{"level":30,"time":1785993438822,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1785993438823,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for account","username":"botfoori","hasPk":false,"lastPostPk":"Dbr5MJniPrx"}
+{"level":30,"time":1785993438823,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1785993438824,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Fetching user info","username":"botfoori"}
+{"level":40,"time":1785993438825,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"PROXY_MODE=list detected - using no proxy for IG fetches","reason":"Free proxies are unstable for IG sessions"}
+{"level":30,"time":1785993438825,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Launching browser for IG fetch","hasProxy":false}
+{"level":30,"time":1785993440246,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1785993440247,"pid":8588,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling workers stopped"}
+{"level":30,"time":1786005377998,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1786005377998,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1786005377998,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM (teleproto)"}
+{"level":30,"time":1786005377998,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1786005377999,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1786005377999,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1786005378004,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1786005378005,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1786005378009,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Initializing services in background..."}
+{"level":30,"time":1786005378009,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1786005378012,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1786005378024,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4895}
+{"level":30,"time":1786005378025,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1786005378052,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1786005380196,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2909}
+{"level":30,"time":1786005380557,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":1978}
+{"level":30,"time":1786005380571,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4887}
+{"level":30,"time":1786005380575,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1786005380575,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram client initialized (Playwright-based)","username":"academy_barfi"}
+{"level":30,"time":1786005380577,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session file loaded","cookieCount":10,"hasSessionId":true,"hasDsUserId":true,"username":"academy_barfi"}
+{"level":30,"time":1786005380577,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored"}
+{"level":40,"time":1786005382542,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verification via API failed","status":404}
+{"level":30,"time":1786005382543,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Session verified, login successful"}
+{"level":30,"time":1786005382543,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Instagram client ready"}
+{"level":30,"time":1786005382545,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"TG_PROXY=auto - will find working SOCKS5 proxy during connect()"}
+{"level":30,"time":1786005382547,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized","hasSession":true,"layer":"228+ (teleproto)","hasProxy":false,"proxyType":"none"}
+{"level":30,"time":1786005382548,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"TG_PROXY=auto - finding working SOCKS5 proxy before connect..."}
+{"level":30,"time":1786005382548,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"TG_PROXY=auto - searching for working SOCKS5 proxy..."}
+{"level":50,"time":1786005382548,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Telegram initialization failed","error":"proxyManager is not defined"}
+{"level":30,"time":1786005382549,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting post polling","interval":"50s","cron":"*/50 * * * * *"}
+{"level":30,"time":1786005382550,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Starting story polling","interval":"90s","cron":"*/1 * * * *"}
+{"level":30,"time":1786005382550,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Polling workers started"}
+{"level":30,"time":1786005382550,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1786005382550,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 All services initialized! Bot is now fully running."}
+{"level":30,"time":1786005387556,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Running initial poll..."}
+{"level":30,"time":1786005387557,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for accounts","count":1}
+{"level":30,"time":1786005387557,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Polling posts for account","username":"botfoori","hasPk":false,"lastPostPk":"Dbr5MJniPrx"}
+{"level":30,"time":1786005387557,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"Fetching user info for account","username":"botfoori"}
+{"level":30,"time":1786005387558,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Fetching user info","username":"botfoori"}
+{"level":40,"time":1786005387558,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"PROXY_MODE=list detected - using no proxy for IG fetches","reason":"Free proxies are unstable for IG sessions"}
+{"level":30,"time":1786005387558,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Launching browser for IG fetch","hasProxy":false}
+{"level":30,"time":1786005395422,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"User info fetched","username":"botfoori"}
+{"level":30,"time":1786005395460,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Worker","msg":"User info fetched","username":"botfoori","pk":null,"isPrivate":false}
+{"level":30,"time":1786005395461,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Fetching user feed","username":"botfoori","limit":5}
+{"level":30,"time":1786005395610,"pid":700,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Step 1: Loading profile page","username":"botfoori"}
+{"level":30,"time":1786005398949,"pid":700,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
