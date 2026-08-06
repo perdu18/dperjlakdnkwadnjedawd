@@ -79,6 +79,9 @@ class BotManager {
 
   /**
    * Start the bot manager
+   *
+   * این متد غیرهمزمان (non-blocking) هست — بلافاصله برمی‌گرده و ربات در پس‌زمینه
+   * استارت میشه. اینطوری اگه api.telegram.org کند باشه، ربات منتظر نمیمونه.
    */
   async start() {
     if (this.isRunning) {
@@ -99,63 +102,58 @@ class BotManager {
       adminCount: this.adminIds.length,
     });
 
+    // Start in background (non-blocking)
+    this._startInBackground(botToken).catch(e => {
+      log.error({ msg: 'Bot Manager background start failed', error: e.message });
+    });
+
+    // Return immediately — bot will start in background
+    return;
+  }
+
+  /**
+   * Background start — این متد در پس‌زمینه اجرا میشه
+   */
+  async _startInBackground(botToken) {
     try {
-      // Build request options
-      // node-telegram-bot-api v1+ uses fetch (undici)
-      // Bot API به api.telegram.org وصل میشه که HTTPS هست و از هر فایروالی عبور می‌کنه
-      // پس نیازی به پروکسی نداره (مثل MTProto با WSS)
       const requestOptions = { timeout: 30000 };
 
-      // فقط اگه پروکسی HTTP به‌صورت دستی تنظیم شده باشه، ازش استفاده می‌کنیم
       const tgProxy = (process.env.TG_PROXY || '').trim();
       const staticProxy = (process.env.PROXY_STATIC_URL || '').trim();
 
       let httpProxyUrl = null;
 
-      // Method 1: Explicit HTTP proxy in TG_PROXY
       if (tgProxy && tgProxy !== 'auto') {
         if (tgProxy.startsWith('http://') || tgProxy.startsWith('https://')) {
           httpProxyUrl = tgProxy;
         }
       }
 
-      // Method 2: PROXY_STATIC_URL if HTTP
       if (!httpProxyUrl && staticProxy) {
         if (staticProxy.startsWith('http://') || staticProxy.startsWith('https://')) {
           httpProxyUrl = staticProxy;
         }
       }
 
-      // نکته مهم: TG_PROXY=auto دیگه auto-find نمی‌کنه
-      // چون Bot API (HTTPS به api.telegram.org) مستقیم کار می‌کنه
-      // و WSS هم برای MTProto کافیه
-
-      // Configure fetch with proxy (if any)
       if (httpProxyUrl) {
         const { ProxyAgent } = await import('undici');
         const dispatcher = new ProxyAgent(httpProxyUrl);
         requestOptions.fetchOptions = { dispatcher };
-        log.info({
-          msg: 'Bot API using HTTP proxy',
-          proxy: httpProxyUrl.replace(/\/\/.*@/, '//***@'),
-        });
+        log.info({ msg: 'Bot API using HTTP proxy' });
       } else {
-        log.info('Bot API will use direct HTTPS connection (no proxy needed)');
+        log.info('Bot API will use direct HTTPS connection');
       }
 
-      // Create bot instance with long polling
+      // Create bot instance
       this.bot = new TelegramBot(botToken, {
         polling: {
           interval: 300,
           autoStart: true,
-          params: {
-            timeout: 30,
-          },
+          params: { timeout: 30 },
         },
         request: requestOptions,
       });
 
-      // Set up error handler
       this.bot.on('polling_error', (error) => {
         log.warn({ msg: 'Bot polling error', error: error.message, code: error.code });
       });
@@ -167,48 +165,68 @@ class BotManager {
       // Register command handlers
       this._registerHandlers();
 
+      // Mark as running immediately
       this.isRunning = true;
-      log.info('✓ Bot Manager started and listening for commands (Bot API)');
+      log.info('✓ Bot Manager started and listening for commands');
 
-      // Get bot info
+      // Get bot info (with timeout)
       try {
-        const me = await this.bot.getMe();
+        const me = await this._withTimeout(this.bot.getMe(), 10000);
         log.info({
           msg: 'Bot Manager connected',
           botUsername: me.username,
           botId: me.id,
-          botName: me.first_name,
         });
 
-        // Set bot commands (for autocomplete in Telegram)
-        await this.bot.setMyCommands([
-          { command: 'menu', description: '🏠 منوی اصلی' },
-          { command: 'status', description: '📊 وضعیت ربات' },
-          { command: 'accounts', description: '📋 لیست اکانت‌ها' },
-          { command: 'add', description: '➕ افزودن اکانت' },
-          { command: 'remove', description: '➖ حذف اکانت' },
-          { command: 'poll', description: '🔍 چک فوری' },
-          { command: 'stats', description: '📈 آمار امروز' },
-          { command: 'recent', description: '📋 آخرین آیتم‌ها' },
-          { command: 'retry', description: '🔄 تلاش مجدد ناموفق‌ها' },
-          { command: 'cleanup', description: '🧹 پاکسازی آیتم‌های ناموفق' },
-          { command: 'help', description: '❓ راهنما' },
-        ]);
+        // Set bot commands
+        try {
+          await this._withTimeout(this.bot.setMyCommands([
+            { command: 'menu', description: '🏠 منوی اصلی' },
+            { command: 'status', description: '📊 وضعیت ربات' },
+            { command: 'accounts', description: '📋 لیست اکانت‌ها' },
+            { command: 'add', description: '➕ افزودن اکانت' },
+            { command: 'remove', description: '➖ حذف اکانت' },
+            { command: 'poll', description: '🔍 چک فوری' },
+            { command: 'stats', description: '📈 آمار امروز' },
+            { command: 'recent', description: '📋 آخرین آیتم‌ها' },
+            { command: 'retry', description: '🔄 تلاش مجدد' },
+            { command: 'cleanup', description: '🧹 پاکسازی' },
+            { command: 'help', description: '❓ راهنما' },
+          ]), 10000);
+        } catch (e) {
+          log.warn({ msg: 'Could not set bot commands', error: e.message });
+        }
 
-        // Send startup message to all admins
-        await this._notifyAdmins(
-          `🤖 <b>ربات مدیریت راه‌اندازی شد</b>\n\n` +
-          `🤖 ربات: @${me.username}\n` +
-          `🆔 آیدی: <code>${me.id}</code>\n\n` +
-          `برای دیدن منوی اصلی: /menu`
-        );
+        // Notify admins
+        try {
+          await this._notifyAdmins(
+            `🤖 <b>ربات مدیریت راه‌اندازی شد</b>\n\n` +
+            `🤖 ربات: @${me.username}\n` +
+            `🆔 آیدی: <code>${me.id}</code>\n\n` +
+            `برای دیدن منوی اصلی: /menu`
+          );
+        } catch (e) {
+          log.warn({ msg: 'Could not notify admins', error: e.message });
+        }
       } catch (e) {
-        log.warn({ msg: 'Could not get bot info', error: e.message });
+        log.warn({ msg: 'Could not get bot info (will continue anyway)', error: e.message });
       }
 
     } catch (e) {
       log.error({ msg: 'Bot Manager failed to start', error: e.message, stack: e.stack });
     }
+  }
+
+  /**
+   * Helper: add timeout to a promise
+   */
+  async _withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms)
+      ),
+    ]);
   }
 
   /**
