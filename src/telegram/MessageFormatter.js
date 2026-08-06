@@ -8,6 +8,7 @@
  * - همیشه در یک پیام
  */
 
+import { Api } from 'teleproto';
 import { truncate } from '../utils/Helpers.js';
 
 const TEHRAN_TIMEZONE = 'Asia/Tehran';
@@ -54,7 +55,11 @@ class MessageFormatter {
   }
 
   /**
-   * Format post — قالب زیبا با بخش‌بندی ━━━
+   * Format post — متن خام + entities (برای expandable blockquote)
+   *
+   * برمی‌گردونه: { text, entities }
+   *   text: متن خام (بدون HTML tags)
+   *   entities: array of Api.MessageEntity
    *
    * ساختار:
    *   ━━━ 📸 اینستاگرام | پست ━━━
@@ -80,15 +85,47 @@ class MessageFormatter {
     if (post.isEdited) tag = ' ✏️';
     if (post.isDeleted) tag = ' 🗑';
 
+    const entities = [];
+    let text = '';
+
     // ── Header ──
-    let header = `<b>━━━ ${icon} اینستاگرام | ${label}${tag} ━━━</b>\n`;
+    const headerLine = `━━━ ${icon} اینستاگرام | ${label}${tag} ━━━`;
+    text += headerLine;
+    entities.push(new Api.MessageEntityBold({ offset: 0, length: headerLine.length }));
+
+    text += '\n';
 
     if (author) {
-      const uname = this.esc(author.username);
-      const name = this.esc(author.fullName || author.username);
+      const uname = author.username || '';
+      const name = author.fullName || uname;
       const v = author.isVerified ? ' ✅' : '';
-      header += `👤 منبع: <a href="https://instagram.com/${uname}">${name}${v}</a> <code>(@${uname})</code>\n`;
 
+      const sourceLabel = `👤 منبع: `;
+      const sourceName = `${name}${v}`;
+      const sourceHandle = ` (@${uname})`;
+
+      text += sourceLabel;
+
+      // Link for name
+      const nameOffset = text.length;
+      text += sourceName;
+      entities.push(new Api.MessageEntityTextUrl({
+        offset: nameOffset,
+        length: sourceName.length,
+        url: `https://instagram.com/${uname}`,
+      }));
+
+      // Code for handle
+      const handleOffset = text.length;
+      text += sourceHandle;
+      entities.push(new Api.MessageEntityCode({
+        offset: handleOffset,
+        length: sourceHandle.length,
+      }));
+
+      text += '\n';
+
+      // Stats
       const s = [];
       const fc = author.followerCount || accountInfo?.followerCount;
       const fgc = author.followingCount || accountInfo?.followingCount;
@@ -96,74 +133,162 @@ class MessageFormatter {
       if (fc) s.push(`👥 فالوور: ${this.fmtNum(fc)}`);
       if (fgc) s.push(`👤 فالووینگ: ${this.fmtNum(fgc)}`);
       if (mc) s.push(`📸 پست‌ها: ${this.fmtNum(mc)}`);
-      if (s.length) header += `📊 آمار اکانت: ${s.join('  |  ')}\n`;
+      if (s.length) {
+        const statsLine = `📊 آمار اکانت: ${s.join('  |  ')}`;
+        text += statsLine + '\n';
+      }
     }
 
-    // ── Footer (جزئیات پست) ──
-    let footer = `<b>━━━ جزئیات پست ━━━</b>\n`;
+    // ── Caption with expandable blockquote ──
+    if (post.caption) {
+      const captionLabel = '📝 کپشن:\n';
+      text += '\n' + captionLabel;
+
+      // Calculate available space
+      const footerPreview = this._buildFooterPreview(post);
+      const availableForCaption = maxLen - text.length - footerPreview.length - 50;
+
+      if (availableForCaption > 50) {
+        const captionText = truncate(post.caption, availableForCaption);
+        const captionOffset = text.length;
+        text += captionText;
+
+        // Expandable blockquote for caption
+        entities.push(new Api.MessageEntityBlockquote({
+          offset: captionOffset,
+          length: captionText.length,
+          collapsed: true,  // ← expandable!
+        }));
+      }
+    }
+
+    // ── Footer ──
+    text += '\n\n';
+    const footerStart = text.length;
+
+    const footerTitle = '━━━ جزئیات پست ━━━';
+    text += footerTitle;
+    entities.push(new Api.MessageEntityBold({ offset: footerStart, length: footerTitle.length }));
+    text += '\n';
 
     const fParts = [];
     if (post.shortcode) {
-      fParts.push(`🔗 <a href="https://instagram.com/p/${post.shortcode}">مشاهده پست</a>`);
+      const linkLabel = '🔗 مشاهده پست';
+      const linkOffset = text.length + fParts.join('\n').length;
+      fParts.push({ text: linkLabel, url: `https://instagram.com/p/${post.shortcode}`, isLink: true });
     }
     if (post.takenAt) {
-      fParts.push(`🕐 زمان: <code>${this.esc(this.formatIranTime(post.takenAt))}</code> <i>(${this.esc(this.formatRelativeTime(post.takenAt))})</i>`);
+      fParts.push({ text: `🕐 زمان: ${this.formatIranTime(post.takenAt)} (${this.formatRelativeTime(post.takenAt)})` });
     }
     if (post.location?.name) {
-      fParts.push(`📍 موقعیت: <code>${this.esc(post.location.name)}</code>`);
+      fParts.push({ text: `📍 موقعیت: ${post.location.name}` });
     }
     if (post.music?.title) {
-      fParts.push(`🎵 ${this.esc(post.music.title)}`);
+      fParts.push({ text: `🎵 ${post.music.title}` });
     }
     if (post.type === 'carousel' && post.carouselItems?.length > 0) {
-      fParts.push(`🖼 تصاویر: <code>${post.carouselItems.length}</code>`);
+      fParts.push({ text: `🖼 تصاویر: ${post.carouselItems.length}` });
     }
 
-    footer += fParts.join('\n') + '\n';
+    // Build footer parts
+    for (let i = 0; i < fParts.length; i++) {
+      const p = fParts[i];
+      if (i > 0) text += '\n';
+
+      if (p.isLink) {
+        const offset = text.length;
+        text += p.text;
+        entities.push(new Api.MessageEntityTextUrl({
+          offset,
+          length: p.text.length,
+          url: p.url,
+        }));
+      } else {
+        text += p.text;
+      }
+    }
 
     // Post stats
     const ps = [];
     if (post.likeCount) ps.push(`❤️ ${this.fmtNum(post.likeCount)}`);
     if (post.commentCount) ps.push(`💬 ${this.fmtNum(post.commentCount)}`);
     if (post.viewCount) ps.push(`👁 ${this.fmtNum(post.viewCount)}`);
-    if (ps.length) footer += `📈 آمار: ${ps.join('  •  ')}\n`;
-
-    footer += `\n<i>🤖 ارسال شده توسط ربات مانیتور اینستاگرام</i>`;
-
-    // ── Caption section ──
-    // فضای باقی‌مونده برای کپشن
-    const headerLen = header.length;
-    const footerLen = footer.length;
-    const captionLabel = '📝 کپشن:\n';
-    const separator = '\n';
-    const availableForCaption = maxLen - headerLen - footerLen - captionLabel.length - (separator.length * 3) - 20;
-
-    let captionSection = '';
-    if (post.caption && availableForCaption > 50) {
-      const captionHtml = this.formatCaption(post.caption, availableForCaption);
-      captionSection = captionLabel + captionHtml;
+    if (ps.length) {
+      text += '\n' + `📈 آمار: ${ps.join('  •  ')}`;
     }
 
-    // ── Assemble ──
-    let result = header + separator + captionSection + separator + separator + footer;
+    text += '\n\n';
+    const footerTextLabel = '🤖 ارسال شده توسط ربات مانیتور اینستاگرام';
+    const footerTextOffset = text.length;
+    text += footerTextLabel;
+    entities.push(new Api.MessageEntityItalic({
+      offset: footerTextOffset,
+      length: footerTextLabel.length,
+    }));
 
-    // Final safety
-    if (result.length > maxLen) {
-      // کپشن رو بیشتر کوتاه کن
-      if (post.caption && availableForCaption > 50) {
-        const overflow = result.length - maxLen + 10;
-        const newCapLen = Math.max(50, availableForCaption - overflow);
-        const captionHtml = this.formatCaption(post.caption, newCapLen);
-        captionSection = captionLabel + captionHtml;
-        result = header + separator + captionSection + separator + separator + footer;
-      }
-      // آخرین راه: hard truncate
-      if (result.length > maxLen) {
-        result = result.slice(0, maxLen - 10) + '…';
-      }
+    // Final safety: truncate if too long
+    if (text.length > maxLen) {
+      text = text.slice(0, maxLen - 10) + '…';
     }
 
-    return result;
+    return { text, entities };
+  }
+
+  /**
+   * Build a preview of the footer for length calculation
+   */
+  _buildFooterPreview(post) {
+    let preview = '\n\n━━━ جزئیات پست ━━━\n';
+    if (post.shortcode) preview += '🔗 مشاهده پست\n';
+    if (post.takenAt) preview += '🕐 زمان: ...\n';
+    if (post.location?.name) preview += '📍 موقعیت: ...\n';
+    preview += '\n🤖 ارسال شده توسط ربات مانیتور اینستاگرام';
+    return preview;
+  }
+
+  /**
+   * Format post as HTML (fallback — برای مواردی که entities کار نمی‌کنه)
+   */
+  formatPostHtml(post, accountInfo, options = {}) {
+    const maxLen = options.maxLen || 1020;
+    const result = this.formatPost(post, accountInfo, { maxLen });
+    // Convert to simple HTML
+    return this._entitiesToHtml(result.text, result.entities);
+  }
+
+  /**
+   * Convert raw text + entities to HTML
+   */
+  _entitiesToHtml(text, entities) {
+    // Simple conversion: sort entities by offset
+    const sorted = [...entities].sort((a, b) => a.offset - b.offset);
+    let html = '';
+    let lastEnd = 0;
+
+    for (const ent of sorted) {
+      html += this.esc(text.slice(lastEnd, ent.offset));
+      const segment = this.esc(text.slice(ent.offset, ent.offset + ent.length));
+
+      if (ent.className === 'MessageEntityBold') {
+        html += `<b>${segment}</b>`;
+      } else if (ent.className === 'MessageEntityItalic') {
+        html += `<i>${segment}</i>`;
+      } else if (ent.className === 'MessageEntityCode') {
+        html += `<code>${segment}</code>`;
+      } else if (ent.className === 'MessageEntityTextUrl') {
+        html += `<a href="${ent.url}">${segment}</a>`;
+      } else if (ent.className === 'MessageEntityBlockquote') {
+        // blockquote در HTML قابل نمایش نیست (مگر با <blockquote>)
+        // برای expandable، فقط متن رو نشان بده
+        html += segment;
+      } else {
+        html += segment;
+      }
+
+      lastEnd = ent.offset + ent.length;
+    }
+    html += this.esc(text.slice(lastEnd));
+    return html;
   }
 
   /**

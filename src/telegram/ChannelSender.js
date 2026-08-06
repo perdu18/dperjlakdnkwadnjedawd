@@ -45,60 +45,41 @@ class ChannelSender {
     try {
       const files = downloadResult.items;
       const hasFiles = files.length > 0;
-
-      // قالب پیام رو بساز
       const maxLen = hasFiles ? 1020 : 4090;
-      const fullCaption = messageFormatter.formatPost(post, accountInfo, { maxLen });
+
+      // قالب پیام رو بساز — برمی‌گردونه { text, entities }
+      const formatted = messageFormatter.formatPost(post, accountInfo, { maxLen });
 
       let result;
 
       if (!hasFiles) {
-        // فقط متن — می‌تونیم با expandable blockquote بفرستیم
-        result = await this._sendWithExpandableCaption(fullCaption, post.caption);
-      } else {
-        // فایل داریم — اگه کل متن در 1024 جا بشه، فایل با caption
-        if (fullCaption.length <= 1020) {
-          // کل متن در caption فایل جا میشه — یک پیام
-          if (files.length === 1) {
-            const file = files[0];
-            const isVideo = file.mime?.startsWith('video/');
-            const isImage = file.mime?.startsWith('image/');
-            result = await retryTgRequest(async () => {
-              return tgClient.sendFile(file.path, {
-                caption: fullCaption,
-                asPhoto: isImage,
-                forceDocument: !isImage && !isVideo,
-              });
-            });
-          } else {
-            const filePaths = files.map(f => f.path);
-            result = await retryTgRequest(async () => {
-              return tgClient.sendAlbum(filePaths, { caption: fullCaption });
-            });
-          }
-        } else {
-          // کپشن طولانی — فایل با header+footer، سپس کپشن با expandable blockquote
-          // ولی در یک پیام: فایل با caption کوتاه شده
-          const truncated = fullCaption.slice(0, 1020 - 10) + '…';
+        // فقط متن — با entities
+        result = await retryTgRequest(async () => {
+          return tgClient.sendMessageWithEntities(formatted.text, formatted.entities);
+        });
+      } else if (files.length === 1) {
+        // یک فایل — با entities به‌عنوان caption
+        const file = files[0];
+        const isVideo = file.mime?.startsWith('video/');
+        const isImage = file.mime?.startsWith('image/');
 
-          if (files.length === 1) {
-            const file = files[0];
-            const isVideo = file.mime?.startsWith('video/');
-            const isImage = file.mime?.startsWith('image/');
-            result = await retryTgRequest(async () => {
-              return tgClient.sendFile(file.path, {
-                caption: truncated,
-                asPhoto: isImage,
-                forceDocument: !isImage && !isVideo,
-              });
-            });
-          } else {
-            const filePaths = files.map(f => f.path);
-            result = await retryTgRequest(async () => {
-              return tgClient.sendAlbum(filePaths, { caption: truncated });
-            });
-          }
-        }
+        result = await retryTgRequest(async () => {
+          return tgClient.sendFile(file.path, {
+            caption: formatted.text,
+            entities: formatted.entities,
+            asPhoto: isImage,
+            forceDocument: !isImage && !isVideo,
+          });
+        });
+      } else {
+        // آلبوم — teleproto از formattingEntities در album پشتیبانی می‌کنه
+        const filePaths = files.map(f => f.path);
+        result = await retryTgRequest(async () => {
+          return tgClient.sendAlbum(filePaths, {
+            caption: formatted.text,
+            entities: formatted.entities,
+          });
+        });
       }
 
       incrementDailyStat('posts_sent');
@@ -107,40 +88,14 @@ class ChannelSender {
         postPk: post.pk,
         type: post.type,
         filesCount: files.length,
-        captionLength: fullCaption.length,
+        captionLength: formatted.text.length,
+        entitiesCount: formatted.entities.length,
       });
 
       return result;
     } finally {
       this.active--;
     }
-  }
-
-  /**
-   * Send message with expandable blockquote for caption
-   *
-   * این متد متن رو با HTML parseMode می‌فرسته، ولی بخش کپشن رو
-   * به صورت expandable blockquote (collapsed) نمایش میده.
-   *
-   * teleproto از <blockquote expandable> در HTML پشتیبانی نمی‌کنه،
-   * پس از raw entities استفاده می‌کنیم.
-   *
-   * ولی برای سادگی، فعلاً با HTML معمولی می‌فرستیم (blockquote بدون expandable).
-   * expandable فقط وقتی لازمه که متن خیلی طولانی باشه.
-   */
-  async _sendWithExpandableCaption(fullText, originalCaption) {
-    // اگه متن کوتاه باشه، با HTML بفرست
-    if (fullText.length <= 4090) {
-      return retryTgRequest(async () => {
-        return tgClient.sendMessage(fullText);
-      });
-    }
-
-    // متن طولانی — split کن
-    // ... (fallback)
-    return retryTgRequest(async () => {
-      return tgClient.sendMessage(fullText.slice(0, 4090));
-    });
   }
 
   /**

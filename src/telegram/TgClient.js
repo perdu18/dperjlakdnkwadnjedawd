@@ -547,15 +547,25 @@ class TgClient {
 
   /**
    * Send a file (photo/video/document)
+   *
+   * از formattingEntities پشتیبانی می‌کنه برای expandable blockquote.
+   * اگه options.entities داده بشه، parseMode غیرفعال میشه و entities خام استفاده میشه.
    */
   async sendFile(filePath, options = {}) {
     const entity = await this.resolveChannel();
 
-    const sendOptions = {
-      parseMode: 'html',
-      caption: options.caption || '',
-      ...options,
-    };
+    const sendOptions = {};
+
+    // اگه entities داده شده، از raw entities استفاده کن (نه HTML)
+    if (options.entities) {
+      sendOptions.caption = options.caption || '';
+      sendOptions.formattingEntities = options.entities;
+      // parseMode رو null کن تا teleproto HTML parse نکنه
+      sendOptions.parseMode = undefined;
+    } else {
+      sendOptions.parseMode = 'html';
+      sendOptions.caption = options.caption || '';
+    }
 
     // Determine if photo or document
     if (options.asPhoto) {
@@ -601,12 +611,26 @@ class TgClient {
     }
 
     for (const batch of batches) {
+      const sendOpts = {};
+
+      if (options.entities) {
+        // Raw entities mode (برای expandable blockquote)
+        sendOpts.caption = options.caption || '';
+        sendOpts.formattingEntities = options.entities;
+        sendOpts.parseMode = undefined;
+      } else {
+        sendOpts.caption = options.caption || '';
+        sendOpts.parseMode = 'html';
+      }
+
       const result = await this.client.sendFile(entity, {
         file: batch,
-        caption: options.caption || '',
-        parseMode: 'html',
+        ...sendOpts,
         ...options,
       });
+
+      // Clean up options that shouldn't be passed to teleproto
+      delete result.entities;
 
       if (Array.isArray(result)) {
         for (const r of result) {
