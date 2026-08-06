@@ -315,6 +315,14 @@ function startHttpServer() {
         return;
       }
 
+      // Set a 60-second timeout for the entire operation
+      const timeoutId = setTimeout(() => {
+        try {
+          res.writeHead(504, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Poll timed out after 60 seconds', username }));
+        } catch {}
+      }, 60000);
+
       try {
         log.info({ msg: 'Manual poll triggered', username });
 
@@ -332,6 +340,7 @@ function startHttpServer() {
           stories = { error: e.message };
         }
 
+        clearTimeout(timeoutId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           username,
@@ -352,13 +361,16 @@ function startHttpServer() {
             : stories,
         }, null, 2));
       } catch (e) {
+        clearTimeout(timeoutId);
         log.error({ msg: 'Manual poll failed', username, error: e.message });
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          error: e.message,
-          stack: e.stack?.split('\n').slice(0, 5),
-          igDebug: igClient.getDebugInfo ? igClient.getDebugInfo() : null,
-        }, null, 2));
+        try {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: e.message,
+            stack: e.stack?.split('\n').slice(0, 5),
+            igDebug: igClient.getDebugInfo ? igClient.getDebugInfo() : null,
+          }, null, 2));
+        } catch {}
       }
       return;
     }

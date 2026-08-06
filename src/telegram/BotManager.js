@@ -100,14 +100,13 @@ class BotManager {
     });
 
     try {
-      // Build request options with proxy if configured
-      // node-telegram-bot-api v1+ uses fetch (undici), so we use ProxyAgent from undici
-      const { ProxyAgent } = await import('undici');
-
+      // Build request options
+      // node-telegram-bot-api v1+ uses fetch (undici)
+      // Bot API به api.telegram.org وصل میشه که HTTPS هست و از هر فایروالی عبور می‌کنه
+      // پس نیازی به پروکسی نداره (مثل MTProto با WSS)
       const requestOptions = { timeout: 30000 };
 
-      // Determine proxy for Bot API
-      // Priority: TG_PROXY (HTTP) > TG_PROXY=auto (find HTTP proxy) > PROXY_STATIC_URL (HTTP)
+      // فقط اگه پروکسی HTTP به‌صورت دستی تنظیم شده باشه، ازش استفاده می‌کنیم
       const tgProxy = (process.env.TG_PROXY || '').trim();
       const staticProxy = (process.env.PROXY_STATIC_URL || '').trim();
 
@@ -117,11 +116,6 @@ class BotManager {
       if (tgProxy && tgProxy !== 'auto') {
         if (tgProxy.startsWith('http://') || tgProxy.startsWith('https://')) {
           httpProxyUrl = tgProxy;
-        } else {
-          log.warn({
-            msg: 'TG_PROXY is not HTTP - Bot API needs HTTP proxy',
-            advice: 'Bot API will try direct connection or use auto-find',
-          });
         }
       }
 
@@ -132,36 +126,13 @@ class BotManager {
         }
       }
 
-      // Method 3: Auto-find HTTP proxy (if TG_PROXY=auto or no proxy configured)
-      if (!httpProxyUrl && (tgProxy === 'auto' || !tgProxy) && proxyManager.isEnabled) {
-        log.info('Auto-finding HTTP proxy for Bot API...');
+      // نکته مهم: TG_PROXY=auto دیگه auto-find نمی‌کنه
+      // چون Bot API (HTTPS به api.telegram.org) مستقیم کار می‌کنه
+      // و WSS هم برای MTProto کافیه
 
-        // Make sure proxies are loaded
-        if (proxyManager.proxies.length === 0) {
-          log.info('Loading proxy list...');
-          await proxyManager.refreshList();
-        }
-
-        const result = await proxyManager.findWorkingHttpProxy({
-          maxAttempts: 30,
-          testUrl: 'https://api.telegram.org',
-          timeout: 8000,
-        });
-
-        if (result) {
-          httpProxyUrl = result.proxyUrl;
-          log.info({
-            msg: '✓ Auto-found HTTP proxy for Bot API',
-            proxy: `${result.proxy.host}:${result.proxy.port}`,
-            responseTime: result.responseTime,
-          });
-        } else {
-          log.warn('Could not find working HTTP proxy for Bot API');
-        }
-      }
-
-      // Configure fetch with proxy
+      // Configure fetch with proxy (if any)
       if (httpProxyUrl) {
+        const { ProxyAgent } = await import('undici');
         const dispatcher = new ProxyAgent(httpProxyUrl);
         requestOptions.fetchOptions = { dispatcher };
         log.info({
@@ -169,10 +140,7 @@ class BotManager {
           proxy: httpProxyUrl.replace(/\/\/.*@/, '//***@'),
         });
       } else {
-        log.warn({
-          msg: 'Bot API will try direct connection (no proxy)',
-          advice: 'On Railway, this may fail. Set TG_PROXY=auto',
-        });
+        log.info('Bot API will use direct HTTPS connection (no proxy needed)');
       }
 
       // Create bot instance with long polling
