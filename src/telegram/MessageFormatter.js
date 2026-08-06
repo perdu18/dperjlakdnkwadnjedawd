@@ -1,14 +1,15 @@
 /**
  * telegram/MessageFormatter.js
- * تبدیل محتوای اینستاگرام به پیام تلگرام (HTML format)
+ * قالب پیام‌های ارسالی به کانال تلگرام
  *
- * استفاده از تمام قابلیت‌های HTML تلگرام طبق core.telegram.org:
- *   - <blockquote> برای بخش‌بندی
- *   - <code> برای مقادیر
- *   - <b>, <i> برای تأکید
- *   - <a> برای لینک‌ها
+ * طراحی: ساده، زیبا، حرفه‌ای، همیشه در یک پیام
+ * محدودیت caption فایل: 1024 کاراکتر
  *
- * تمام زمان‌ها به وقت ایران (Asia/Tehran).
+ * استراتژی:
+ *   - header (عنوان + منبع): ~100 کاراکتر
+ *   - کپشن پست: انعطاف‌پذیر (هرچه جا بشه)
+ *   - footer (لینک + زمان + آمار + bot): ~200 کاراکتر
+ *   - اگه کل بیشتر از maxLen بشه، کپشن کوتاه میشه
  */
 
 import { truncate } from '../utils/Helpers.js';
@@ -16,22 +17,20 @@ import { truncate } from '../utils/Helpers.js';
 const TEHRAN_TIMEZONE = 'Asia/Tehran';
 
 class MessageFormatter {
-  formatIranTime(timestamp, opts = {}) {
-    if (!timestamp) return null;
+  formatIranTime(ts) {
+    if (!ts) return '';
     try {
-      const date = new Date(timestamp * 1000);
       return new Intl.DateTimeFormat('en-GB', {
         timeZone: TEHRAN_TIMEZONE,
         year: 'numeric', month: '2-digit', day: '2-digit',
         hour: '2-digit', minute: '2-digit', hour12: false,
-        ...opts,
-      }).format(date);
-    } catch { return null; }
+      }).format(new Date(ts * 1000));
+    } catch { return ''; }
   }
 
-  formatRelativeTime(timestamp) {
-    if (!timestamp) return null;
-    const diff = Date.now() - (timestamp * 1000);
+  formatRelativeTime(ts) {
+    if (!ts) return '';
+    const diff = Date.now() - (ts * 1000);
     const m = Math.floor(diff / 60000);
     const h = Math.floor(m / 60);
     const d = Math.floor(h / 24);
@@ -39,299 +38,231 @@ class MessageFormatter {
     if (m < 60) return `${m} دقیقه پیش`;
     if (h < 24) return `${h} ساعت پیش`;
     if (d < 7) return `${d} روز پیش`;
-    return this.formatIranTime(timestamp, { dateStyle: 'short' });
+    return this.formatIranTime(ts);
   }
 
-  escapeHtml(text) {
+  esc(text) {
     if (!text) return '';
-    return String(text)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  formatCaption(caption, options = {}) {
+  fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
+
+  /**
+   * Format caption with HTML linkify
+   */
+  formatCaption(caption, maxLen) {
     if (!caption) return '';
-    const { maxLength = 1000 } = options;
-    let text = truncate(caption, maxLength);
-    text = this.escapeHtml(text);
+    let text = truncate(caption, maxLen);
+    text = this.esc(text);
     text = text.replace(/#([\w\u0600-\u06FF]+)/g, '<a href="https://instagram.com/explore/tags/$1">$&</a>');
     text = text.replace(/@([a-zA-Z0-9._]+)/g, '<a href="https://instagram.com/$1">$&</a>');
     return text;
   }
 
-  formatNumber(num) {
-    if (!num) return '0';
-    return num.toLocaleString('en-US');
-  }
-
   /**
-   * Format post message — professional design with Telegram HTML features
+   * Format post — زیبا و فشرده
+   *
+   * ساختار:
+   *   📸 عنوان
+   *   👤 منبع | 👥 فالوور | 📸 پست
+   *   ───
+   *   📝 کپشن (انعطاف‌پذیر)
+   *   ───
+   *   🔗 لینک | 🕐 زمان | 📍 موقعیت | 📊 آمار
+   *   🤖 فوتر
    */
-  formatPost(post, accountInfo) {
-    const parts = [];
+  formatPost(post, accountInfo, options = {}) {
+    const maxLen = options.maxLen || 1020;
     const author = post.user || accountInfo;
 
-    // ── Header ──
+    // ── Determine type ──
     let icon = '📸', label = 'پست';
     if (post.type === 'reel') { icon = '🎬'; label = 'ریلز'; }
     else if (post.type === 'video') { icon = '🎥'; label = 'ویدیو'; }
     else if (post.type === 'carousel') { icon = '🖼'; label = 'گالری'; }
 
-    // Edit/Delete tags
     let tag = '';
-    if (post.isEdited) tag = ' <i>✏️ [ویرایش شده]</i>';
-    if (post.isDeleted) tag = ' <i>🗑 [حذف شده]</i>';
+    if (post.isEdited) tag = ' ✏️';
+    if (post.isDeleted) tag = ' 🗑';
 
-    parts.push(`<b>${icon} اینستاگرام | ${label}${tag}</b>`);
+    // ── Build header (fixed, ~100 chars) ──
+    let header = `<b>${icon} ${label}${tag}</b>`;
 
-    // ── Author block ──
     if (author) {
-      const name = this.escapeHtml(author.fullName || author.username);
-      const uname = this.escapeHtml(author.username);
-      const vBadge = author.isVerified ? ' ✓' : '';
-      parts.push(`<blockquote>👤 <a href="https://instagram.com/${uname}">${name}${vBadge}</a> <code>@${uname}</code>`);
+      const uname = this.esc(author.username);
+      const name = this.esc(author.fullName || author.username);
+      const v = author.isVerified ? ' ✓' : '';
+      header += `\n👤 <a href="https://instagram.com/${uname}">${name}${v}</a>`;
 
-      const stats = [];
-      if (author.followerCount || accountInfo?.followerCount)
-        stats.push(`👥 ${this.formatNumber(author.followerCount || accountInfo?.followerCount)}`);
-      if (author.followingCount || accountInfo?.followingCount)
-        stats.push(`➡️ ${this.formatNumber(author.followingCount || accountInfo?.followingCount)}`);
-      if (author.mediaCount || accountInfo?.mediaCount)
-        stats.push(`📸 ${this.formatNumber(author.mediaCount || accountInfo?.mediaCount)}`);
-      if (stats.length) parts.push(`<code>${stats.join(' │ ')}</code>`);
-      parts.push('</blockquote>');
+      const s = [];
+      const fc = author.followerCount || accountInfo?.followerCount;
+      const mc = author.mediaCount || accountInfo?.mediaCount;
+      if (fc) s.push(`👥${this.fmtNum(fc)}`);
+      if (mc) s.push(`📸${this.fmtNum(mc)}`);
+      if (s.length) header += ` │ <code>${s.join(' │ ')}</code>`;
     }
 
-    // ── Caption ──
-    if (post.caption) {
-      parts.push('');
-      parts.push(this.formatCaption(post.caption, { maxLength: 800 }));
-    }
-
-    // ── Details block ──
-    parts.push('');
-    parts.push('<blockquote>');
+    // ── Build footer (fixed, ~250 chars) ──
+    const footerParts = [];
 
     if (post.shortcode) {
-      parts.push(`🔗 <a href="https://instagram.com/p/${post.shortcode}">مشاهده در اینستاگرام</a>`);
+      footerParts.push(`🔗 <a href="https://instagram.com/p/${post.shortcode}">لینک</a>`);
     }
-
     if (post.takenAt) {
-      parts.push(`🕐 <code>${this.escapeHtml(this.formatIranTime(post.takenAt))}</code> <i>(${this.escapeHtml(this.formatRelativeTime(post.takenAt))})</i>`);
-    }
-
-    if (post.type === 'carousel' && post.carouselItems?.length > 0) {
-      parts.push(`🖼 تصاویر: <code>${post.carouselItems.length}</code>`);
-    }
-    if (post.isVideo) {
-      parts.push(`🎥 نوع: <code>${post.isReel ? 'ریلز' : 'ویدیو'}</code>`);
+      footerParts.push(`🕐 ${this.esc(this.formatIranTime(post.takenAt))} (${this.esc(this.formatRelativeTime(post.takenAt))})`);
     }
     if (post.location?.name) {
-      parts.push(`📍 <code>${this.escapeHtml(post.location.name)}</code>`);
+      footerParts.push(`📍 ${this.esc(post.location.name)}`);
     }
     if (post.music?.title) {
-      parts.push(`🎵 ${this.escapeHtml(post.music.title)}`);
+      footerParts.push(`🎵 ${this.esc(post.music.title)}`);
     }
-    if (post.usertags?.length > 0) {
-      parts.push(`👥 ${post.usertags.slice(0, 10).map(u => '@' + this.escapeHtml(u)).join(' ')}`);
+    if (post.type === 'carousel' && post.carouselItems?.length > 0) {
+      footerParts.push(`🖼 ${post.carouselItems.length} تصویر`);
     }
 
-    // Stats
-    const sp = [];
-    if (post.likeCount) sp.push(`❤️ ${this.formatNumber(post.likeCount)}`);
-    if (post.commentCount) sp.push(`💬 ${this.formatNumber(post.commentCount)}`);
-    if (post.viewCount) sp.push(`👁 ${this.formatNumber(post.viewCount)}`);
-    if (sp.length) parts.push(`📊 <code>${sp.join(' │ ')}</code>`);
+    // Post stats
+    const ps = [];
+    if (post.likeCount) ps.push(`❤️${this.fmtNum(post.likeCount)}`);
+    if (post.commentCount) ps.push(`💬${this.fmtNum(post.commentCount)}`);
+    if (post.viewCount) ps.push(`👁${this.fmtNum(post.viewCount)}`);
+    if (ps.length) footerParts.push(ps.join(' '));
 
-    parts.push('</blockquote>');
-    parts.push('');
-    parts.push(`<i>🤖 IG Monitor Bot</i>`);
+    const footer = `\n${footerParts.join(' │ ')}\n\n<i>🤖 IG Monitor Bot</i>`;
 
-    return parts.join('\n');
+    // ── Calculate available space for caption ──
+    const headerLen = header.length;
+    const footerLen = footer.length;
+    const separator = '\n\n';
+    const availableForCaption = maxLen - headerLen - footerLen - (separator.length * 2) - 20;
+
+    // ── Build caption ──
+    let captionHtml = '';
+    if (post.caption && availableForCaption > 50) {
+      captionHtml = this.formatCaption(post.caption, availableForCaption);
+    }
+
+    // ── Assemble ──
+    const result = header + separator + captionHtml + separator + footer;
+
+    // Final safety check
+    if (result.length > maxLen) {
+      // Truncate caption more aggressively
+      const overflow = result.length - maxLen + 10;
+      if (captionHtml.length > overflow) {
+        const truncatedCaption = captionHtml.slice(0, captionHtml.length - overflow) + '…';
+        return header + separator + truncatedCaption + separator + footer;
+      }
+      // Last resort: hard truncate
+      return result.slice(0, maxLen - 10) + '…';
+    }
+
+    return result;
   }
 
   /**
-   * Format story message
+   * Format story — زیبا و فشرده
    */
-  formatStory(story, accountInfo) {
-    const parts = [];
+  formatStory(story, accountInfo, options = {}) {
+    const maxLen = options.maxLen || 1020;
     const author = accountInfo || story.user;
+
     let icon = '📖', label = 'استوری';
     if (story.isVideo) { icon = '🎥'; label = 'استوری ویدیویی'; }
-
     const cf = story.isCloseFriends ? ' ⭐' : '';
     let tag = '';
-    if (story.isDeleted) tag = ' <i>🗑 [حذف شده]</i>';
+    if (story.isDeleted) tag = ' 🗑';
 
-    parts.push(`<b>${icon} اینستاگرام | ${label}${cf}${tag}</b>`);
+    const parts = [`<b>${icon} ${label}${cf}${tag}</b>`];
 
     if (author) {
-      const name = this.escapeHtml(author.fullName || author.username);
-      const uname = this.escapeHtml(author.username);
-      const vBadge = author.isVerified ? ' ✓' : '';
-      parts.push(`<blockquote>👤 <a href="https://instagram.com/${uname}">${name}${vBadge}</a> <code>@${uname}</code>`);
-
-      const stats = [];
-      if (author.followerCount) stats.push(`👥 ${this.formatNumber(author.followerCount)}`);
-      if (author.mediaCount) stats.push(`📸 ${this.formatNumber(author.mediaCount)}`);
-      if (stats.length) parts.push(`<code>${stats.join(' │ ')}</code>`);
-      parts.push('</blockquote>');
+      const uname = this.esc(author.username);
+      const name = this.esc(author.fullName || author.username);
+      let line = `👤 <a href="https://instagram.com/${uname}">${name}</a>`;
+      const mc = author.mediaCount;
+      if (mc) line += ` │ <code>📸${this.fmtNum(mc)}</code>`;
+      parts.push(line);
     }
 
     if (story.caption) {
       parts.push('');
-      parts.push(this.formatCaption(story.caption, { maxLength: 400 }));
+      parts.push(this.formatCaption(story.caption, 300));
     }
 
-    parts.push('');
-    parts.push('<blockquote>');
+    const details = [];
     if (story.mentions?.length > 0) {
-      parts.push(`👥 ${story.mentions.map(m => '@' + this.escapeHtml(m)).join(' ')}`);
-    }
-    if (story.hashtags?.length > 0) {
-      parts.push(`#️⃣ ${story.hashtags.map(h => '#' + this.escapeHtml(h)).join(' ')}`);
-    }
-    if (story.locations?.length > 0) {
-      parts.push(`📍 <code>${story.locations.map(l => this.escapeHtml(l)).join(', ')}</code>`);
+      details.push(`👥 ${story.mentions.map(m => '@' + this.esc(m)).join(' ')}`);
     }
     if (story.takenAt) {
-      parts.push(`🕐 <code>${this.escapeHtml(this.formatIranTime(story.takenAt))}</code> <i>(${this.escapeHtml(this.formatRelativeTime(story.takenAt))})</i>`);
+      details.push(`🕐 ${this.esc(this.formatIranTime(story.takenAt))} (${this.esc(this.formatRelativeTime(story.takenAt))})`);
     }
-    if (story.expiringAt) {
-      parts.push(`⏰ انقضا: <code>${this.escapeHtml(this.formatIranTime(story.expiringAt))}</code>`);
+    if (details.length) {
+      parts.push('');
+      parts.push(details.join(' │ '));
     }
-    parts.push('</blockquote>');
 
     parts.push('');
     parts.push(`<i>🤖 IG Monitor Bot</i>`);
 
-    return parts.join('\n');
+    let result = parts.join('\n');
+    if (result.length > maxLen) {
+      result = result.slice(0, maxLen - 10) + '…';
+    }
+    return result;
   }
 
-  /**
-   * Format highlight message (new!)
-   */
   formatHighlight(highlight, accountInfo) {
-    const parts = [];
-    const author = accountInfo;
-
-    parts.push(`<b>⭐ اینستاگرام | هایلایت${highlight.isNew ? ' ✨ [جدید]' : ' 🗑 [حذف شده]'}</b>`);
-
-    if (author) {
-      const uname = this.escapeHtml(author.username);
-      const name = this.escapeHtml(author.fullName || author.username);
-      parts.push(`<blockquote>👤 <a href="https://instagram.com/${uname}">${name}</a> <code>@${uname}</code>`);
-      parts.push('</blockquote>');
+    const parts = [`<b>⭐ هایلایت${highlight.isNew ? ' ✨' : ' 🗑'}</b>`];
+    if (accountInfo) {
+      parts.push(`👤 <a href="https://instagram.com/${this.esc(accountInfo.username)}">${this.esc(accountInfo.fullName || accountInfo.username)}</a>`);
     }
-
-    parts.push('');
-    parts.push('<blockquote>');
-    parts.push(`📌 عنوان: <b>${this.escapeHtml(highlight.title || 'بدون عنوان')}</b>`);
-    if (highlight.itemCount) {
-      parts.push(`🎬 تعداد: <code>${highlight.itemCount}</code>`);
-    }
-    if (highlight.takenAt) {
-      parts.push(`🕐 <code>${this.escapeHtml(this.formatIranTime(highlight.takenAt))}</code>`);
-    }
-    parts.push('</blockquote>');
-
+    parts.push(`📌 ${this.esc(highlight.title || 'بدون عنوان')}`);
+    if (highlight.itemCount) parts.push(`🎬 ${highlight.itemCount} مورد`);
+    if (highlight.takenAt) parts.push(`🕐 ${this.esc(this.formatIranTime(highlight.takenAt))}`);
     parts.push('');
     parts.push(`<i>🤖 IG Monitor Bot</i>`);
-
     return parts.join('\n');
   }
 
-  /**
-   * Format ban alert
-   */
   formatBanAlert(username, reason) {
-    return `<b>🚫 اکانت اینستاگرام مسدود شد</b>
-
-<blockquote>
-👤 اکانت: <code>@${this.escapeHtml(username)}</code>
-📋 دلیل: <code>${this.escapeHtml(reason || 'نامشخص')}</code>
-⏰ زمان: <code>${this.escapeHtml(this.formatIranTime(Math.floor(Date.now() / 1000)))}</code>
-</blockquote>
-
-<b>اقدامات لازم:</b>
-• بررسی وضعیت اکانت در instagram.com
-• اگه اکانت ربات شما بن شده، session جدید بسازید
-• اگه اکانت هدف بن شده، اون رو از لیست حذف کنید
-
-<i>🤖 IG Monitor Bot</i>`;
+    return `<b>🚫 بن شد</b>\n\n👤 <code>@${this.esc(username)}</code>\n📋 ${this.esc(reason || 'نامشخص')}\n🕐 ${this.esc(this.formatIranTime(Math.floor(Date.now() / 1000)))}\n\n<i>🤖 IG Monitor Bot</i>`;
   }
 
-  /**
-   * Format daily stats
-   */
   formatDailyStats(stats) {
-    const today = this.formatIranTime(Math.floor(Date.now() / 1000), { dateStyle: 'full' });
-    return `<b>📊 آمار امروز</b>
-
-<blockquote>
-📅 <code>${this.escapeHtml(today)}</code>
-✅ ارسال شده: <b>${this.formatNumber(stats.sent || 0)}</b>
-📸 پست‌ها: <code>${this.formatNumber(stats.posts || 0)}</code>
-📖 استوری‌ها: <code>${this.formatNumber(stats.stories || 0)}</code>
-🎬 ریلزها: <code>${this.formatNumber(stats.reels || 0)}</code>
-⭐ هایلایت‌ها: <code>${this.formatNumber(stats.highlights || 0)}</code>
-❌ ناموفق: <code>${this.formatNumber(stats.failed || 0)}</code>
-⏭ نادیده: <code>${this.formatNumber(stats.skipped || 0)}</code>
-</blockquote>
-
-<i>🤖 IG Monitor Bot</i>`;
+    const today = this.formatIranTime(Math.floor(Date.now() / 1000));
+    return `<b>📊 آمار امروز</b>\n\n📅 <code>${this.esc(today)}</code>\n✅ ارسال: <b>${this.fmtNum(stats.sent || 0)}</b>\n📸 پست: ${this.fmtNum(stats.posts || 0)} │ 📖 استوری: ${this.fmtNum(stats.stories || 0)} │ 🎬 ریلز: ${this.fmtNum(stats.reels || 0)}\n❌ ناموفق: ${this.fmtNum(stats.failed || 0)}\n\n<i>🤖 IG Monitor Bot</i>`;
   }
 
   formatAlert(title, details) {
-    return `🚨 <b>${this.escapeHtml(title)}</b>\n\n<blockquote><code>${this.escapeHtml(details)}</code></blockquote>`;
+    return `🚨 <b>${this.esc(title)}</b>\n\n<code>${this.esc(details)}</code>`;
   }
 
   formatError(error, context = {}) {
     const parts = [`❌ <b>خطا</b>`, ''];
-    parts.push(`<blockquote>`);
-    parts.push(`📋 <code>${this.escapeHtml(error.message || String(error))}</code>`);
-    if (context.module) parts.push(`ماژول: <code>${this.escapeHtml(context.module)}</code>`);
-    if (context.account) parts.push(`اکانت: <code>@${this.escapeHtml(context.account)}</code>`);
-    parts.push(`</blockquote>`);
+    parts.push(`<code>${this.esc(error.message || String(error))}</code>`);
+    if (context.account) parts.push(`👤 @${this.esc(context.account)}`);
     return parts.join('\n');
   }
 
   formatFailureReport(details) {
-    const { type, account, mediaPk, shortcode, caption, mediaUrls, error, downloadStage, timestamp } = details;
-    const typeEmoji = type === 'story' ? '📖' : (type === 'reel' ? '🎬' : '📸');
+    const { type, account, mediaPk, shortcode, error, downloadStage } = details;
     const stageLabel = downloadStage === 'download' ? 'دانلود' : 'ارسال';
     const parts = [
-      `<b>❌ خطا در ${stageLabel} ${typeEmoji}</b>`,
+      `<b>❌ خطا در ${stageLabel}</b>`,
       '',
-      '<blockquote>',
-      `📊 اکانت: <code>@${this.escapeHtml(account)}</code>`,
-      `🆔 مدیا: <code>${this.escapeHtml(String(mediaPk))}</code>`,
+      `👤 <code>@${this.esc(account)}</code>`,
+      `🆔 <code>${this.esc(String(mediaPk))}</code>`,
     ];
-    if (shortcode) parts.push(`🔗 <a href="https://instagram.com/p/${this.escapeHtml(shortcode)}">مشاهده</a>`);
-    if (caption) parts.push(`\n📝 ${this.escapeHtml(truncate(caption, 150))}`);
-    if (error) {
-      parts.push(`\n❌ <code>${this.escapeHtml(truncate(error.message || String(error), 500))}</code>`);
-    }
-    parts.push('</blockquote>');
+    if (shortcode) parts.push(`🔗 <a href="https://instagram.com/p/${this.esc(shortcode)}">لینک</a>`);
+    if (error) parts.push(`\n<code>${this.esc(truncate(error.message || String(error), 400))}</code>`);
+    parts.push('');
     parts.push(`<i>🤖 IG Monitor Bot</i>`);
     return parts.join('\n');
   }
 
-  /**
-   * Format backup notification
-   */
-  formatBackupNotification(backupInfo) {
-    return `<b>💾 بکاپ روزانه</b>
-
-<blockquote>
-📅 تاریخ: <code>${this.escapeHtml(this.formatIranTime(Math.floor(Date.now() / 1000)))}</code>
-📦 دیتابیس: <code>${backupInfo.dbSize || 'نامشخص'}</code>
-🍪 سشن IG: <code>${backupInfo.igSessionSize || 'نامشخص'}</code>
-📱 سشن TG: <code>${backupInfo.tgSessionSize || 'نامشخص'}</code>
-📊 آمار: <code>${backupInfo.totalItems || 0} آیتم</code>
-</blockquote>
-
-<i>🤖 IG Monitor Bot</i>`;
+  formatBackupNotification(info) {
+    return `<b>💾 بکاپ روزانه</b>\n\n📅 <code>${this.esc(this.formatIranTime(Math.floor(Date.now() / 1000)))}</code>\n📦 DB: <code>${info.dbSize || '?'}</code>\n📊 <code>${info.totalItems || 0} آیتم</code>\n\n<i>🤖 IG Monitor Bot</i>`;
   }
 }
 

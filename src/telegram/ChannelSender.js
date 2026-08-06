@@ -1,20 +1,19 @@
 /**
  * telegram/ChannelSender.js
- * ارسال پیام‌ها و فایل‌ها به کانال تلگرام
+ * ارسال پیام‌ها و فایل‌ها به کانال تلگرام — همیشه در یک پیام
  *
- * استراتژی برای کپشن‌های طولانی (طبق مستندات core.telegram.org):
- *   - محدودیت caption فایل: 1024 کاراکتر
- *   - محدودیت پیام متنی: 4096 کاراکتر
- *   - برای کپشن‌های طولانی، فایل با caption کوتاه ارسال میشه
- *   - سپس بقیه متن با expandable blockquote (collapsed=true) ارسال میشه
- *     که کاربر باید روی «Show more» کلیک کنه تا کامل بشه
+ * محدودیت‌ها:
+ *   - caption فایل: 1024 کاراکتر
+ *   - پیام متنی: 4096 کاراکتر
+ *
+ * استراتژی: قالب پیام طوری طراحی شده که همیشه در 1024 جا بشه.
+ * اگه کپشن پست طولانی باشه، به‌صورت هوشمند کوتاه میشه.
  */
 
-import { Api } from 'teleproto';
 import { resolve } from 'path';
 import { tgLogger as log } from '../utils/Logger.js';
 import { retryTgRequest } from '../utils/Retry.js';
-import { formatBytes, truncate } from '../utils/Helpers.js';
+import { formatBytes } from '../utils/Helpers.js';
 import { incrementDailyStat } from '../database/db.js';
 import messageFormatter from './MessageFormatter.js';
 import tgClient from './TgClient.js';
@@ -26,7 +25,7 @@ class ChannelSender {
   }
 
   /**
-   * Send a post (with media)
+   * Send a post — همیشه در یک پیام
    */
   async sendPost(post, downloadResult, accountInfo) {
     if (!tgClient.isReady()) {
@@ -35,136 +34,46 @@ class ChannelSender {
 
     this.active++;
     try {
-      const fullCaption = messageFormatter.formatPost(post, accountInfo);
       const files = downloadResult.items;
+      const hasFiles = files.length > 0;
 
-      // استراتژی برای کپشن‌های طولانی (طبق مستندات تلگرام core.telegram.org):
-      // - محدودیت caption فایل: 1024 کاراکتر
-      // - محدودیت پیام متنی: 4096 کاراکتر
-      //
-      // اگه کپشن طولانی‌تر از 1024 باشه و فایل داشته باشیم:
-      // ۱. فایل رو با یه caption کوتاه (header + آمار) می‌فرستیم
-      // ۲. بقیه متن (کپشن کامل + جزئیات) رو به‌عنوان پیام جداگانه می‌فرستیم
+      // قالب پیام رو بساز
+      // اگه فایل داریم: max 1024 chars
+      // اگه فقط متن: max 4096 chars
+      const maxLen = hasFiles ? 1020 : 4090;
+      let caption = messageFormatter.formatPost(post, accountInfo, { maxLen });
 
-      let fileCaption = fullCaption;
-      let extraTextMessage = null;
-
-      if (fullCaption.length > 1024 && files.length > 0) {
-        // Split: فایل با header + آمار، پیام متنی با کپشن + جزئیات
-        const lines = fullCaption.split('\n');
-        const headerLines = [];
-        const restLines = [];
-
-        let inHeader = true;
-        for (const line of lines) {
-          if (inHeader) {
-            headerLines.push(line);
-            if (line.includes('</blockquote>') && headerLines.length > 2) {
-              inHeader = false;
-              continue;
-            }
-          } else {
-            restLines.push(line);
-          }
-        }
-
-        fileCaption = headerLines.join('\n').slice(0, 1024);
-        extraTextMessage = restLines.join('\n').slice(0, 4096);
-      } else if (fullCaption.length > 4096) {
-        fileCaption = this._smartTruncateCaption(fullCaption, 4096);
+      // اطمینان از حد مجاد
+      if (caption.length > maxLen) {
+        caption = caption.slice(0, maxLen - 20) + '\n\n<i>…</i>';
       }
 
       let result;
 
-      if (files.length === 0) {
-        // No media - just text (can be up to 4096)
+      if (!hasFiles) {
+        // فقط متن
         result = await retryTgRequest(async () => {
-          return tgClient.sendMessage(fileCaption);
+          return tgClient.sendMessage(caption);
         });
       } else if (files.length === 1) {
+        // یک فایل
         const file = files[0];
         const isVideo = file.mime?.startsWith('video/');
         const isImage = file.mime?.startsWith('image/');
 
         result = await retryTgRequest(async () => {
           return tgClient.sendFile(file.path, {
-            caption: fileCaption,
+            caption,
             asPhoto: isImage,
             forceDocument: !isImage && !isVideo,
           });
         });
       } else {
+        // آلبوم (carousel)
         const filePaths = files.map(f => f.path);
         result = await retryTgRequest(async () => {
-          return tgClient.sendAlbum(filePaths, {
-            caption: fileCaption,
-          });
+          return tgClient.sendAlbum(filePaths, { caption });
         });
-      }
-
-      // اگه کپشن طولانی بود، بقیه متن رو با expandable blockquote بفرست
-      // طبق مستندات core.telegram.org: MessageEntityBlockquote با collapsed=true
-      if (extraTextMessage) {
-        try {
-          // استراتژی: دو روش امتحان می‌کنیم
-          // ۱. ابتدا با expandable blockquote (raw entities)
-          // ۲. اگه شکست خورد، با HTML معمولی
-
-          try {
-            // روش ۱: expandable blockquote با raw entities
-            // متن رو از HTML پاک کنیم
-            const plainText = extraTextMessage
-              .replace(/<[^>]+>/g, '')  // حذف HTML tags
-              .replace(/&amp;/g, '&')
-              .replace(/&lt;/g, '<')
-              .replace(/&gt;/g, '>')
-              .replace(/&quot;/g, '"')
-              .replace(/&#39;/g, "'");
-
-            if (plainText.length > 0 && plainText.length <= 4096) {
-              // expandable blockquote برای کل متن
-              const entities = [
-                new Api.MessageEntityBlockquote({
-                  offset: 0,
-                  length: plainText.length,
-                  collapsed: true,  // ← expandable!
-                }),
-              ];
-
-              await retryTgRequest(async () => {
-                return tgClient.sendMessageWithEntities(plainText, entities);
-              });
-
-              log.info({
-                msg: '✓ Extra text sent with expandable blockquote',
-                length: plainText.length,
-              });
-            } else {
-              throw new Error('Text too long or empty for entities');
-            }
-          } catch (entityErr) {
-            // روش ۲: fallback به HTML معمولی
-            log.debug({ msg: 'Expandable blockquote failed, using HTML', error: entityErr.message });
-
-            // اگه متن خیلی طولانیه، چند پارت کن
-            const maxMsgLen = 4096;
-            if (extraTextMessage.length <= maxMsgLen) {
-              await retryTgRequest(async () => {
-                return tgClient.sendMessage(extraTextMessage);
-              });
-            } else {
-              // Split به پارت‌های 4096 کاراکتری
-              for (let i = 0; i < extraTextMessage.length; i += maxMsgLen) {
-                const chunk = extraTextMessage.slice(i, i + maxMsgLen);
-                await retryTgRequest(async () => {
-                  return tgClient.sendMessage(chunk);
-                });
-              }
-            }
-          }
-        } catch (e) {
-          log.warn({ msg: 'Could not send extra text message', error: e.message });
-        }
       }
 
       incrementDailyStat('posts_sent');
@@ -173,10 +82,7 @@ class ChannelSender {
         postPk: post.pk,
         type: post.type,
         filesCount: files.length,
-        totalSize: formatBytes(files.reduce((s, f) => s + (f.size || 0), 0)),
-        captionLength: fileCaption.length,
-        hasExtraText: !!extraTextMessage,
-        extraTextLength: extraTextMessage?.length || 0,
+        captionLength: caption.length,
       });
 
       return result;
@@ -186,43 +92,7 @@ class ChannelSender {
   }
 
   /**
-   * Smart truncate caption to fit Telegram's 1024 char limit
-   * حفظ کردن بخش‌های مهم: header, آمار اکانت, لینک، زمان، footer
-   */
-  _smartTruncateCaption(fullCaption, maxLength = 1024) {
-    if (fullCaption.length <= maxLength) return fullCaption;
-
-    const lines = fullCaption.split('\n');
-    const result = [];
-
-    // همیشه header (خط اول) و footer (خط آخر) رو نگه دار
-    // و بخش‌های مهم (🔗, 🕐, 📊, 📈) رو حفظ کن
-    const importantKeywords = ['━━━', '👤', '📊', '🔗', '🕐', '🤖', '📈', '🎵', '📍'];
-
-    for (const line of lines) {
-      const isImportant = importantKeywords.some(kw => line.includes(kw));
-      const currentLength = result.join('\n').length;
-
-      if (isImportant) {
-        // همیشه اضافه کن
-        result.push(line);
-      } else if (currentLength + line.length + 1 < maxLength - 100) {
-        // اضافه کن اگه جا داره
-        result.push(line);
-      }
-      // اگه جا نداره، skip کن
-    }
-
-    let truncated = result.join('\n');
-    if (truncated.length > maxLength) {
-      truncated = truncated.slice(0, maxLength - 10) + '...';
-    }
-
-    return truncated;
-  }
-
-  /**
-   * Send a story (with media)
+   * Send a story
    */
   async sendStory(story, downloadResult, accountInfo) {
     if (!tgClient.isReady()) {
@@ -231,39 +101,40 @@ class ChannelSender {
 
     this.active++;
     try {
-      const caption = messageFormatter.formatStory(story, accountInfo);
       const files = downloadResult.items;
+      const hasFiles = files.length > 0;
+      const maxLen = hasFiles ? 1020 : 4090;
+      let caption = messageFormatter.formatStory(story, accountInfo, { maxLen });
 
-      if (files.length === 0) {
-        // Story with no media? send just text
-        const result = await retryTgRequest(async () => {
-          return tgClient.sendMessage(caption);
-        });
-        incrementDailyStat('stories_sent');
-        return result;
+      if (caption.length > maxLen) {
+        caption = caption.slice(0, maxLen - 20) + '\n\n<i>…</i>';
       }
 
-      const file = files[0];
-      const isVideo = file.mime?.startsWith('video/');
-      const isImage = file.mime?.startsWith('image/');
+      let result;
 
-      // Story captions must be short (1024 max)
-      const truncatedCaption = truncate(caption, 1024);
-
-      const result = await retryTgRequest(async () => {
-        return tgClient.sendFile(file.path, {
-          caption: truncatedCaption,
-          asPhoto: isImage,
-          forceDocument: !isImage && !isVideo,
+      if (!hasFiles) {
+        result = await retryTgRequest(async () => {
+          return tgClient.sendMessage(caption);
         });
-      });
+      } else {
+        const file = files[0];
+        const isVideo = file.mime?.startsWith('video/');
+        const isImage = file.mime?.startsWith('image/');
+
+        result = await retryTgRequest(async () => {
+          return tgClient.sendFile(file.path, {
+            caption,
+            asPhoto: isImage,
+            forceDocument: !isImage && !isVideo,
+          });
+        });
+      }
 
       incrementDailyStat('stories_sent');
       log.info({
         msg: 'Story sent to Telegram',
         storyPk: story.pk,
-        isVideo,
-        size: formatBytes(file.size),
+        captionLength: caption.length,
       });
 
       return result;
@@ -273,48 +144,46 @@ class ChannelSender {
   }
 
   /**
-   * Send alert message
+   * Send highlight
    */
-  async sendAlert(title, details) {
+  async sendHighlight(highlight, accountInfo) {
     if (!tgClient.isReady()) return;
     try {
-      const text = messageFormatter.formatAlert(title, details);
-      await tgClient.sendAlert(text);
+      const text = messageFormatter.formatHighlight(highlight, accountInfo);
+      await retryTgRequest(async () => tgClient.sendMessage(text));
+      incrementDailyStat('highlights_sent');
     } catch (e) {
-      log.warn({ msg: 'Failed to send alert', error: e.message });
+      log.warn({ msg: 'Failed to send highlight', error: e.message });
     }
   }
 
-  /**
-   * Send daily stats message
-   */
+  async sendBanAlert(username, reason) {
+    if (!tgClient.isReady()) return;
+    try {
+      const text = messageFormatter.formatBanAlert(username, reason);
+      await retryTgRequest(async () => tgClient.sendMessage(text));
+    } catch (e) {
+      log.warn({ msg: 'Failed to send ban alert', error: e.message });
+    }
+  }
+
   async sendDailyStats(stats) {
     if (!tgClient.isReady()) return;
     try {
       const text = messageFormatter.formatDailyStats(stats);
-      await tgClient.sendMessage(text);
+      await retryTgRequest(async () => tgClient.sendMessage(text));
     } catch (e) {
       log.warn({ msg: 'Failed to send daily stats', error: e.message });
     }
   }
 
-  /**
-   * Send error message
-   *
-   * اگه ALERT_CHAT_ID تنظیم شده باشه، خطا به اون چت ارسال میشه.
-   * در غیر این صورت، به کانال اصلی (TG_CHANNEL_ID) ارسال میشه تا
-   * کاربر همیشه از خطاها باخبر بشه.
-   */
   async sendError(error, context = {}) {
     if (!tgClient.isReady()) return;
     try {
       const text = messageFormatter.formatError(error, context);
-
-      // اگر ALERT_CHAT_ID تنظیم شده، به اون ارسال کن
       if (config.telegram.alertChatId) {
         await tgClient.sendAlert(text);
       } else {
-        // در غیر این صورت، به کانال اصلی ارسال کن
         await tgClient.sendMessage(text);
       }
     } catch (e) {
@@ -322,23 +191,10 @@ class ChannelSender {
     }
   }
 
-  /**
-   * Send detailed failure report for a post/story that failed to send
-   *
-   * این متد یه گزارش کامل از شکست ارسال یه پست می‌فرسته به تلگرام، شامل:
-   * - نوع محتوا (پست/استوری/reel)
-   * - اکانت منبع
-   * - shortcode و URL
-   * - متن خطا
-   * - stack trace (اگه موجود باشه)
-   * - URLهای مدیا (برای دیباگ)
-   */
   async sendFailureReport(details) {
     if (!tgClient.isReady()) return;
-
-    const text = messageFormatter.formatFailureReport(details);
-
     try {
+      const text = messageFormatter.formatFailureReport(details);
       if (config.telegram.alertChatId) {
         await tgClient.sendAlert(text);
       } else {
@@ -349,9 +205,6 @@ class ChannelSender {
     }
   }
 
-  /**
-   * Send a plain text message
-   */
   async sendText(text) {
     if (!tgClient.isReady()) {
       throw new Error('Telegram client not connected');
@@ -361,22 +214,8 @@ class ChannelSender {
     });
   }
 
-  /**
-   * Get active send count
-   */
   getActiveCount() {
     return this.active;
-  }
-}
-
-// Helper to avoid circular imports
-function config_import_maxConcurrentSends() {
-  // Lazy import to avoid issues
-  try {
-    // We can't dynamically import in a sync function easily - just default
-    return 2;
-  } catch {
-    return 2;
   }
 }
 
