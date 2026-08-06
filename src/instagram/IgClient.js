@@ -229,10 +229,12 @@ class IgClient {
   }
 
   /**
-   * Get user feed (recent posts) — GraphQL API
+   * Get user feed (recent posts)
    *
-   * این متد از Instagram's GraphQL API استفاده می‌کنه که با cookies کار می‌کنه.
-   * سریع، قابل اتکا، و بدون نیاز به مرورگر.
+   * روش‌های مختلف برای دریافت پست‌ها (به ترتیب اولویت):
+   *   1. feed/user/{pk}/ endpoint (پایدارترین)
+   *   2. GraphQL query (fallback)
+   *   3. web/search/topsearch برای پیدا کردن pk
    */
   async getUserFeed(pkOrUsername, options = {}) {
     const { limit = 10 } = options;
@@ -240,13 +242,13 @@ class IgClient {
       ? pkOrUsername
       : pkOrUsername;
 
-    log.info({ msg: 'Fetching user feed via GraphQL', username, limit });
+    log.info({ msg: 'Fetching user feed', username, limit });
 
     if (!this.axiosInstance) {
       throw new Error('No axios instance — session not loaded');
     }
 
-    // Step 1: Search for user to get pk
+    // Step 1: Get user pk via search
     const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
 
     const searchRes = await this.axiosInstance.get(searchUrl, {
@@ -262,9 +264,128 @@ class IgClient {
     }
 
     const userPk = userMatch.user.pk;
-    log.debug({ msg: 'Found user', username, pk: userPk });
+    log.info({ msg: 'Found user', username, pk: userPk });
 
-    // Step 2: Fetch feed via GraphQL
+    // Step 2: Try feed/user/{pk}/ endpoint (most reliable)
+    try {
+      const posts = await this._getFeedViaUserEndpoint(userPk, username, limit, userMatch.user);
+      if (posts.length > 0) {
+        log.info({ msg: 'Feed fetched via feed/user endpoint', count: posts.length });
+        return posts;
+      }
+      log.warn({ msg: 'feed/user endpoint returned no posts' });
+    } catch (e) {
+      log.warn({ msg: 'feed/user endpoint failed', error: e.message });
+    }
+
+    // Step 3: Fallback to GraphQL
+    try {
+      const posts = await this._getFeedViaGraphQL(userPk, username, limit, userMatch.user);
+      if (posts.length > 0) {
+        log.info({ msg: 'Feed fetched via GraphQL', count: posts.length });
+        return posts;
+      }
+    } catch (e) {
+      log.warn({ msg: 'GraphQL failed', error: e.message });
+    }
+
+    log.warn({ msg: 'All methods failed for feed fetch', username });
+    return [];
+  }
+
+  /**
+   * Method 1: feed/user/{pk}/ endpoint
+   * این endpoint قدیمی اما پایدار هست و با cookies کار می‌کنه.
+   */
+  async _getFeedViaUserEndpoint(userPk, username, limit, userInfo) {
+    const feedUrl = `${IG_API}/feed/user/${userPk}/?count=${limit}`;
+
+    log.debug({ msg: 'Trying feed/user endpoint', pk: userPk });
+
+    const res = await this.axiosInstance.get(feedUrl, {
+      headers: { 'Referer': `${IG_BASE}/${username}/` },
+    });
+
+    if (res.status !== 200) {
+      throw new Error(`feed/user returned ${res.status}`);
+    }
+
+    const items = res.data?.items;
+    if (!items || !Array.isArray(items)) {
+      log.debug({ msg: 'feed/user: no items array', dataType: typeof res.data });
+      throw new Error('feed/user: no items in response');
+    }
+
+    log.info({ msg: 'feed/user: items found', count: items.length });
+
+    const posts = [];
+    for (const item of items) {
+      if (posts.length >= limit) break;
+
+      const mediaType = item.media_type; // 1=photo, 2=video, 8=carousel
+      const isVideo = mediaType === 2;
+      const isCarousel = mediaType === 8;
+
+      let mediaUrls = [];
+      let carouselItems = [];
+
+      if (isCarousel && item.carousel_media) {
+        for (const child of item.carousel_media) {
+          const childIsVideo = child.media_type === 2;
+          if (childIsVideo && child.video_versions?.length > 0) {
+            mediaUrls.push(child.video_versions[0].url);
+            carouselItems.push({ type: 'video', url: child.video_versions[0].url });
+          } else if (child.image_versions2?.candidates?.length > 0) {
+            mediaUrls.push(child.image_versions2.candidates[0].url);
+            carouselItems.push({ type: 'photo', url: child.image_versions2.candidates[0].url });
+          }
+        }
+      } else if (isVideo && item.video_versions?.length > 0) {
+        mediaUrls.push(item.video_versions[0].url);
+        carouselItems.push({ type: 'video', url: item.video_versions[0].url });
+      } else if (item.image_versions2?.candidates?.length > 0) {
+        mediaUrls.push(item.image_versions2.candidates[0].url);
+        carouselItems.push({ type: 'photo', url: item.image_versions2.candidates[0].url });
+      }
+
+      const caption = item.caption?.text || '';
+
+      posts.push({
+        pk: String(item.id),
+        id: String(item.id),
+        type: isCarousel ? 'carousel' : (isVideo ? 'video' : 'photo'),
+        isVideo,
+        isReel: item.product_type === 'clips',
+        caption,
+        shortcode: item.code,
+        takenAt: item.taken_at,
+        takenAtIso: item.taken_at ? new Date(item.taken_at * 1000).toISOString() : null,
+        mediaUrls,
+        carouselItems,
+        likeCount: item.like_count || 0,
+        commentCount: item.comment_count || 0,
+        viewCount: item.play_count || item.view_count || 0,
+        location: item.location ? { name: item.location.name } : null,
+        user: {
+          pk: userPk,
+          username,
+          fullName: userInfo.full_name,
+          profilePicUrl: userInfo.profile_pic_url,
+          isVerified: userInfo.is_verified,
+        },
+        music: null,
+        hasAudio: isVideo,
+        videoDuration: item.video_duration || null,
+      });
+    }
+
+    return posts;
+  }
+
+  /**
+   * Method 2: GraphQL query (fallback)
+   */
+  async _getFeedViaGraphQL(userPk, username, limit, userInfo) {
     const queryHash = '69cad40e6a9c9d9b5d2d44f2b6ac649f';
     const variables = JSON.stringify({
       id: userPk,
@@ -274,21 +395,18 @@ class IgClient {
 
     const graphqlUrl = `${IG_API}/graphql/query/?query_hash=${queryHash}&variables=${encodeURIComponent(variables)}`;
 
+    log.debug({ msg: 'Trying GraphQL', pk: userPk });
+
     const feedRes = await this.axiosInstance.get(graphqlUrl, {
       headers: { 'Referer': `${IG_BASE}/${username}/` },
     });
 
     const media = feedRes.data?.data?.user?.edge_owner_to_timeline_media;
     if (!media?.edges) {
-      log.warn({
-        msg: 'No media edges in GraphQL response',
-        status: feedRes.status,
-        response: JSON.stringify(feedRes.data).slice(0, 300),
-      });
-      return [];
+      throw new Error(`GraphQL: no media edges (status ${feedRes.status})`);
     }
 
-    log.info({ msg: 'GraphQL media found', count: media.edges.length, totalCount: media.count });
+    log.info({ msg: 'GraphQL: media found', count: media.edges.length });
 
     const posts = [];
     for (const edge of media.edges) {
@@ -298,7 +416,7 @@ class IgClient {
 
       const isVideo = node.is_video;
       const isCarousel = node.__typename === 'GraphSidecar';
-      const isReel = node.product_type === 'clips' || (isVideo && node.video_duration > 0);
+      const isReel = node.product_type === 'clips';
 
       let mediaUrls = [];
       let carouselItems = [];
@@ -322,15 +440,13 @@ class IgClient {
         carouselItems.push({ type: 'photo', url: node.display_url });
       }
 
-      const caption = node.edge_media_to_caption?.edges?.[0]?.node?.text || '';
-
       posts.push({
         pk: String(node.id),
         id: String(node.id),
         type: isCarousel ? 'carousel' : (isReel ? 'reel' : (isVideo ? 'video' : 'photo')),
         isVideo,
         isReel,
-        caption,
+        caption: node.edge_media_to_caption?.edges?.[0]?.node?.text || '',
         shortcode: node.shortcode,
         takenAt: node.taken_at_timestamp,
         takenAtIso: node.taken_at_timestamp ? new Date(node.taken_at_timestamp * 1000).toISOString() : null,
@@ -339,22 +455,13 @@ class IgClient {
         likeCount: node.edge_media_preview_like?.count || 0,
         commentCount: node.edge_media_to_comment?.count || 0,
         viewCount: node.video_view_count || 0,
-        location: null,
-        user: {
-          pk: userPk,
-          username,
-          fullName: userMatch.user.full_name,
-          profilePicUrl: userMatch.user.profile_pic_url,
-          isVerified: userMatch.user.is_verified,
-        },
+        user: { pk: userPk, username, fullName: userInfo.full_name, isVerified: userInfo.is_verified },
         music: null,
-        usertags: [],
         hasAudio: isVideo,
         videoDuration: null,
       });
     }
 
-    log.info({ msg: 'Posts fetched', count: posts.length, username });
     return posts;
   }
 
