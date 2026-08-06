@@ -12,7 +12,7 @@
  * API کاملاً شبیه GramJS هست و session string قبلی هم کار می‌کنه.
  */
 
-import { TelegramClient } from 'teleproto';
+import { TelegramClient, Api } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { PromisedWebSockets } from 'teleproto/extensions/index.js';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
@@ -493,6 +493,53 @@ class TgClient {
         errorMessage: e.errorMessage,
         textLength: text?.length,
         textPreview: text?.slice(0, 100),
+      });
+      throw e;
+    }
+  }
+
+  /**
+   * Send a message with raw entities (برای expandable blockquote)
+   *
+   * این متد به‌جای parseMode از entities خام استفاده می‌کنه.
+   * برای expandable blockquote که از HTML پشتیبانی نمی‌شه، این روش لازمه.
+   *
+   * @param {string} text - متن خام (بدون HTML tags)
+   * @param {Array} entities - array of Api.MessageEntity objects
+   * @param {Object} options - گزینه‌های اضافی
+   */
+  async sendMessageWithEntities(text, entities = [], options = {}) {
+    const entity = await this.resolveChannel();
+
+    try {
+      const result = await this.client.invoke(
+        new Api.messages.SendMessage({
+          peer: entity,
+          message: text,
+          entities: entities,
+          noWebpage: !options.linkPreview,
+          replyTo: options.replyTo || undefined,
+        })
+      );
+
+      // Extract message id from result
+      let msgId = null;
+      if (result?.updates?.Updates) {
+        const msgs = result.updates.Updates.filter(u => u.className === 'UpdateNewMessage' || u.className === 'UpdateNewChannelMessage');
+        if (msgs.length > 0) {
+          msgId = msgs[0].message?.id;
+        }
+      }
+
+      return {
+        id: msgId,
+        chatId: entity.id?.toString?.() || null,
+      };
+    } catch (e) {
+      log.error({
+        msg: 'sendMessageWithEntities failed',
+        error: e.message,
+        textLength: text?.length,
       });
       throw e;
     }

@@ -1,8 +1,16 @@
 /**
  * telegram/ChannelSender.js
  * ارسال پیام‌ها و فایل‌ها به کانال تلگرام
+ *
+ * استراتژی برای کپشن‌های طولانی (طبق مستندات core.telegram.org):
+ *   - محدودیت caption فایل: 1024 کاراکتر
+ *   - محدودیت پیام متنی: 4096 کاراکتر
+ *   - برای کپشن‌های طولانی، فایل با caption کوتاه ارسال میشه
+ *   - سپس بقیه متن با expandable blockquote (collapsed=true) ارسال میشه
+ *     که کاربر باید روی «Show more» کلیک کنه تا کامل بشه
  */
 
+import { Api } from 'teleproto';
 import { resolve } from 'path';
 import { tgLogger as log } from '../utils/Logger.js';
 import { retryTgRequest } from '../utils/Retry.js';
@@ -13,7 +21,7 @@ import tgClient from './TgClient.js';
 
 class ChannelSender {
   constructor() {
-    this.maxConcurrent = config_import_maxConcurrentSends();
+    this.maxConcurrent = 2;
     this.active = 0;
   }
 
@@ -94,12 +102,66 @@ class ChannelSender {
         });
       }
 
-      // اگه کپشن طولانی بود، بقیه متن رو به‌عنوان پیام جداگانه بفرست
+      // اگه کپشن طولانی بود، بقیه متن رو با expandable blockquote بفرست
+      // طبق مستندات core.telegram.org: MessageEntityBlockquote با collapsed=true
       if (extraTextMessage) {
         try {
-          await retryTgRequest(async () => {
-            return tgClient.sendMessage(extraTextMessage);
-          });
+          // استراتژی: دو روش امتحان می‌کنیم
+          // ۱. ابتدا با expandable blockquote (raw entities)
+          // ۲. اگه شکست خورد، با HTML معمولی
+
+          try {
+            // روش ۱: expandable blockquote با raw entities
+            // متن رو از HTML پاک کنیم
+            const plainText = extraTextMessage
+              .replace(/<[^>]+>/g, '')  // حذف HTML tags
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'");
+
+            if (plainText.length > 0 && plainText.length <= 4096) {
+              // expandable blockquote برای کل متن
+              const entities = [
+                new Api.MessageEntityBlockquote({
+                  offset: 0,
+                  length: plainText.length,
+                  collapsed: true,  // ← expandable!
+                }),
+              ];
+
+              await retryTgRequest(async () => {
+                return tgClient.sendMessageWithEntities(plainText, entities);
+              });
+
+              log.info({
+                msg: '✓ Extra text sent with expandable blockquote',
+                length: plainText.length,
+              });
+            } else {
+              throw new Error('Text too long or empty for entities');
+            }
+          } catch (entityErr) {
+            // روش ۲: fallback به HTML معمولی
+            log.debug({ msg: 'Expandable blockquote failed, using HTML', error: entityErr.message });
+
+            // اگه متن خیلی طولانیه، چند پارت کن
+            const maxMsgLen = 4096;
+            if (extraTextMessage.length <= maxMsgLen) {
+              await retryTgRequest(async () => {
+                return tgClient.sendMessage(extraTextMessage);
+              });
+            } else {
+              // Split به پارت‌های 4096 کاراکتری
+              for (let i = 0; i < extraTextMessage.length; i += maxMsgLen) {
+                const chunk = extraTextMessage.slice(i, i + maxMsgLen);
+                await retryTgRequest(async () => {
+                  return tgClient.sendMessage(chunk);
+                });
+              }
+            }
+          }
         } catch (e) {
           log.warn({ msg: 'Could not send extra text message', error: e.message });
         }
