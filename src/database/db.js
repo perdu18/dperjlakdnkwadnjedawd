@@ -156,6 +156,10 @@ const runMigrations = () => {
       profile_pic_url TEXT,
       is_private INTEGER DEFAULT 0,
       is_verified INTEGER DEFAULT 0,
+      follower_count INTEGER DEFAULT 0,
+      following_count INTEGER DEFAULT 0,
+      media_count INTEGER DEFAULT 0,
+      biography TEXT,
       last_post_pk TEXT,
       last_story_pk TEXT,
       last_post_checked_at INTEGER,
@@ -170,6 +174,20 @@ const runMigrations = () => {
     CREATE INDEX IF NOT EXISTS idx_tracked_accounts_active ON tracked_accounts(is_active);
     CREATE INDEX IF NOT EXISTS idx_tracked_accounts_username ON tracked_accounts(username);
   `);
+
+  // Add new columns if they don't exist (for existing databases)
+  try {
+    db.exec(`ALTER TABLE tracked_accounts ADD COLUMN follower_count INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    db.exec(`ALTER TABLE tracked_accounts ADD COLUMN following_count INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    db.exec(`ALTER TABLE tracked_accounts ADD COLUMN media_count INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    db.exec(`ALTER TABLE tracked_accounts ADD COLUMN biography TEXT`);
+  } catch (e) {}
 
   // sent items log
   db.exec(`

@@ -139,13 +139,14 @@ export const TrackedAccountsRepository = {
   },
 
   /**
-   * آپدیت اطلاعات پروفایل
+   * آپدیت اطلاعات پروفایل (شامل آمار: فالوور، فالووینگ، تعداد پست)
    */
   updateProfile(username, info) {
     const db = getDb();
     return db.prepare(`
       UPDATE tracked_accounts
       SET pk = ?, full_name = ?, profile_pic_url = ?, is_private = ?, is_verified = ?,
+          follower_count = ?, following_count = ?, media_count = ?, biography = ?,
           updated_at = strftime('%s','now')
       WHERE username = ?
     `).run(
@@ -154,6 +155,10 @@ export const TrackedAccountsRepository = {
       info.profilePicUrl || null,
       info.isPrivate ? 1 : 0,
       info.isVerified ? 1 : 0,
+      info.followerCount || 0,
+      info.followingCount || 0,
+      info.mediaCount || 0,
+      info.biography || null,
       username.toLowerCase()
     );
   },

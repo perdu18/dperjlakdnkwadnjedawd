@@ -146,6 +146,9 @@ class SendWorker {
         fullName: account.full_name,
         isVerified: account.is_verified === 1,
         pk: account.pk,
+        followerCount: account.follower_count,
+        followingCount: account.following_count,
+        mediaCount: account.media_count,
       };
 
       let result;
