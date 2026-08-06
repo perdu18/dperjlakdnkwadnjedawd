@@ -152,9 +152,9 @@ class PollingWorker {
   async _pollPostsForAccount(account) {
     log.info({ msg: 'Polling posts for account', username: account.username, hasPk: !!account.pk, lastPostPk: account.last_post_pk });
 
-    // Fetch user info if not cached
-    if (!account.pk) {
-      log.info({ msg: 'Fetching user info for account', username: account.username });
+    // Fetch user info if not cached — یا اگه آمار موجود نیست
+    if (!account.pk || !account.follower_count) {
+      log.info({ msg: 'Fetching user info for account', username: account.username, hasPk: !!account.pk });
       try {
         const info = await igClient.getUserByUsername(account.username);
 
@@ -164,13 +164,27 @@ class PollingWorker {
           profilePicUrl: info.profilePicUrl,
           isPrivate: info.isPrivate,
           isVerified: info.isVerified,
+          followerCount: info.followerCount,
+          followingCount: info.followingCount,
+          mediaCount: info.mediaCount,
+          biography: info.biography,
         });
 
         account.pk = info.pk;
         account.full_name = info.fullName;
         account.is_private = info.isPrivate ? 1 : 0;
+        account.follower_count = info.followerCount;
+        account.following_count = info.followingCount;
+        account.media_count = info.mediaCount;
 
-        log.info({ msg: 'User info fetched', username: account.username, pk: info.pk, isPrivate: info.isPrivate });
+        log.info({
+          msg: 'User info fetched',
+          username: account.username,
+          pk: info.pk,
+          isPrivate: info.isPrivate,
+          followers: info.followerCount,
+          posts: info.mediaCount,
+        });
 
         if (info.isPrivate) {
           log.warn({ msg: 'Account is private - cannot fetch posts', username: account.username });

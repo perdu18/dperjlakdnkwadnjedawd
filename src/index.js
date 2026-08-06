@@ -135,12 +135,13 @@ async function initServices() {
       if (connected) {
         log.info('✓ Telegram MTProto connected');
         try {
-          await channelSender.sendText(
+          // پیام راه‌اندازی فقط به ادمین‌ها ارسال میشه (نه کانال)
+          await botManager.notifyAdmins(
             '🤖 <b>ربات مانیتور اینستاگرام راه‌اندازی شد</b>\n\n' +
             `✅ تلگرام: <b>متصل</b>\n` +
             `📸 اینستاگرام: <b>${igClient.isLoggedIn ? 'متصل' : 'قطع'}</b>\n` +
             `📊 اکانت‌های مانیتور: <b>${config.monitoring.targetAccounts.length}</b>\n\n` +
-            `<i>برای مدیریت ربات از دستور /start استفاده کنید.</i>`
+            `<i>برای مدیریت ربات از دستور /menu استفاده کنید.</i>`
           );
         } catch (e) {
           log.warn({ msg: 'Could not send startup notification', error: e.message });
@@ -153,7 +154,7 @@ async function initServices() {
             `Error: <code>${tgClient.lastError || 'Unknown'}</code>\n\n` +
             'Bot Manager is running. Posts cannot be sent to channel yet.\n' +
             'Will retry every 5 minutes automatically.\n\n' +
-            'Use /findproxy to find a working proxy manually.'
+            'Use /debug for details.'
           );
         } catch {}
         startTelegramRetryLoop();
@@ -544,12 +545,13 @@ function startTelegramRetryLoop() {
           );
         } catch {}
 
-        // Send startup notification
+        // Send notification to admins (not channel)
         try {
-          await channelSender.sendText(
-            '🤖 <b>ربات مانیتور اینستاگرام متصل شد</b>\n\n' +
-            `✅ تلگرام: <b>متصل</b>\n` +
-            `📸 اینستاگرام: <b>${igClient.isLoggedIn ? 'متصل' : 'قطع'}</b>`
+          await botManager.notifyAdmins(
+            '✅ <b>تلگرام متصل شد!</b>\n\n' +
+            `🔴 تلگرام: <b>متصل</b>\n` +
+            `📸 اینستاگرام: <b>${igClient.isLoggedIn ? 'متصل' : 'قطع'}</b>\n\n` +
+            'پست‌ها به کانال ارسال خواهند شد.'
           );
         } catch {}
       } else {
