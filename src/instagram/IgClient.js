@@ -574,6 +574,139 @@ class IgClient {
     }
   }
 
+  /**
+   * Get user highlights — تشخیص هایلایت‌های جدید و حذف شده
+   *
+   * هایلایت‌ها استوری‌های ثابت پروفایل هستن که کاربر میتونه اضافه/حذف کنه.
+   */
+  async getUserHighlights(pkOrUsername) {
+    const username = typeof pkOrUsername === 'string' && !pkOrUsername.match(/^\d+$/)
+      ? pkOrUsername
+      : pkOrUsername;
+
+    log.info({ msg: 'Fetching user highlights', username });
+
+    if (!this.axiosInstance) return [];
+
+    try {
+      // Get user pk first
+      const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
+      const searchRes = await this.axiosInstance.get(searchUrl, {
+        headers: { 'Referer': `${IG_BASE}/` },
+      });
+
+      const users = searchRes.data?.users || [];
+      const userMatch = users.find(u => u.user?.username?.toLowerCase() === username.toLowerCase());
+
+      if (!userMatch?.user?.pk) {
+        log.warn({ msg: 'Cannot find user for highlights', username });
+        return [];
+      }
+
+      const userPk = userMatch.user.pk;
+
+      // Fetch highlights via GraphQL
+      const queryHash = '11bdcdeehas8a4e6a88sh8d8eea8d8c8';  // highlights query
+      const variables = JSON.stringify({
+        user_id: userPk,
+        include_chaining: false,
+        include_reel: false,
+        include_suggested_users: false,
+        include_logged_out_insights: false,
+      });
+
+      const graphqlUrl = `${IG_API}/graphql/query/?query_hash=${queryHash}&variables=${encodeURIComponent(variables)}`;
+
+      let highlights = [];
+
+      try {
+        const res = await this.axiosInstance.get(graphqlUrl, {
+          headers: { 'Referer': `${IG_BASE}/${username}/` },
+        });
+
+        const edges = res.data?.data?.user?.edge_highlight_reels?.edges || [];
+
+        highlights = edges.map(edge => {
+          const node = edge.node;
+          return {
+            id: String(node.id),
+            title: node.title || 'بدون عنوان',
+            itemCount: node.highlight_reel?.item_count || 0,
+            coverUrl: node.cover_media?.thumbnail_url || node.cover_media?.url || null,
+            takenAt: node.latest_reel_media || 0,
+            isNew: false,
+            isDeleted: false,
+          };
+        });
+      } catch (e) {
+        log.warn({ msg: 'GraphQL highlights failed, trying feed endpoint', error: e.message });
+
+        // Fallback: try feed/user/{pk}/highlight endpoint
+        try {
+          const res = await this.axiosInstance.get(`${IG_API}/feed/user/${userPk}/highlight/`, {
+            headers: { 'Referer': `${IG_BASE}/${username}/` },
+          });
+
+          if (res.data?.items) {
+            highlights = res.data.items.map(item => ({
+              id: String(item.id),
+              title: item.title || 'بدون عنوان',
+              itemCount: item.item_count || 0,
+              coverUrl: item.cover_media?.thumbnail_url || null,
+              takenAt: item.latest_reel_media || 0,
+              isNew: false,
+              isDeleted: false,
+            }));
+          }
+        } catch (e2) {
+          log.warn({ msg: 'Highlights feed endpoint also failed', error: e2.message });
+        }
+      }
+
+      log.info({ msg: 'Highlights fetched', count: highlights.length, username });
+      return highlights;
+    } catch (e) {
+      log.warn({ msg: 'Failed to fetch highlights', username, error: e.message });
+      return [];
+    }
+  }
+
+  /**
+   * Check if a post has been edited or deleted
+   * با مقایسه caption و وجود پست با استفاده از media/info endpoint
+   */
+  async checkPostStatus(shortcode, originalCaption) {
+    if (!this.axiosInstance || !shortcode) {
+      return { isEdited: false, isDeleted: false };
+    }
+
+    try {
+      // Try to get media info
+      const res = await this.axiosInstance.get(`${IG_API}/media/${shortcode}/info/`, {
+        headers: { 'Referer': `${IG_BASE}/p/${shortcode}/` },
+      });
+
+      if (res.status === 404 || !res.data?.items?.length) {
+        return { isEdited: false, isDeleted: true };
+      }
+
+      const item = res.data.items[0];
+      const currentCaption = item.caption?.text || '';
+
+      if (originalCaption && currentCaption !== originalCaption) {
+        return { isEdited: true, isDeleted: false, newCaption: currentCaption };
+      }
+
+      return { isEdited: false, isDeleted: false };
+    } catch (e) {
+      if (e.response?.status === 404) {
+        return { isEdited: false, isDeleted: true };
+      }
+      log.debug({ msg: 'Could not check post status', shortcode, error: e.message });
+      return { isEdited: false, isDeleted: false };
+    }
+  }
+
   async logout() {
     this.isLoggedIn = false;
     log.info('Logged out from Instagram');
