@@ -10,7 +10,7 @@
 
 import { Api } from 'teleproto';
 import { resolve, join } from 'path';
-import { writeFileSync, mkdirSync, unlinkSync } from 'fs';
+import { writeFileSync, mkdirSync, unlinkSync, renameSync } from 'fs';
 import { tgLogger as log } from '../utils/Logger.js';
 import { retryTgRequest } from '../utils/Retry.js';
 import { formatBytes } from '../utils/Helpers.js';
@@ -73,17 +73,78 @@ class ChannelSender {
           });
         });
       } else {
-        // آلبوم (carousel) — path فایل‌ها رو به‌صورت string بفرست
-        // teleproto خودش نوع هر فایل (عکس/ویدیو) رو تشخیص میده
-        // forceDocument=false برای همه اعمال میشه
+        // آلبوم (carousel) — فایل‌ها رو با path ساده بفرست
+        // teleproto خودش نوع هر فایل (عکس/ویدیو) رو از پسوند تشخیص میده
         const filePaths = files.map(f => f.path);
-        result = await retryTgRequest(async () => {
-          return tgClient.sendAlbum(filePaths, {
-            caption: formatted.text,
-            entities: formatted.entities,
-            forceDocument: false,
-          });
+
+        // اطمینان از اینکه پسوندها درست هستن
+        // teleproto فقط .jpg/.png/.jpeg رو به‌عنوان عکس تشخیص میده
+        const fixedPaths = filePaths.map(p => {
+          const lower = p.toLowerCase();
+          if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') ||
+              lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.gif')) {
+            return p;
+          }
+          // اگه پسوند ناشناخته هست، بر اساس mime تعیین کن
+          const file = files.find(f => f.path === p);
+          if (file?.mime?.startsWith('image/')) {
+            const newPath = p.replace(/\.[^.]+$/, '.jpg');
+            try { renameSync(p, newPath); } catch {}
+            return newPath;
+          }
+          if (file?.mime?.startsWith('video/')) {
+            const newPath = p.replace(/\.[^.]+$/, '.mp4');
+            try { renameSync(p, newPath); } catch {}
+            return newPath;
+          }
+          return p;
         });
+
+        try {
+          // تلاش اول: آلبوم
+          result = await retryTgRequest(async () => {
+            return tgClient.sendAlbum(fixedPaths, {
+              caption: formatted.text,
+              entities: formatted.entities,
+              forceDocument: false,
+            });
+          });
+        } catch (albumErr) {
+          // اگه آلبوم خطا داد، فایل‌ها رو یکی یکی بفرست
+          log.warn({ msg: 'Album failed, sending files individually', error: albumErr.message });
+
+          // اولین فایل رو با caption بفرست
+          const firstFile = files[0];
+          const isVideo = firstFile.mime?.startsWith('video/');
+          const isImage = firstFile.mime?.startsWith('image/');
+
+          result = await retryTgRequest(async () => {
+            return tgClient.sendFile(fixedPaths[0], {
+              caption: formatted.text,
+              entities: formatted.entities,
+              asPhoto: isImage,
+              forceDocument: !isImage && !isVideo,
+            });
+          });
+
+          // بقیه فایل‌ها رو بدون caption بفرست
+          for (let i = 1; i < fixedPaths.length; i++) {
+            try {
+              const f = files[i];
+              const fIsVideo = f.mime?.startsWith('video/');
+              const fIsImage = f.mime?.startsWith('image/');
+
+              await retryTgRequest(async () => {
+                return tgClient.sendFile(fixedPaths[i], {
+                  asPhoto: fIsImage,
+                  forceDocument: !fIsImage && !fIsVideo,
+                });
+              });
+            } catch (e) {
+              log.warn({ msg: 'Could not send individual file', index: i, error: e.message });
+            }
+          }
+        }
       }
 
       incrementDailyStat('posts_sent');
