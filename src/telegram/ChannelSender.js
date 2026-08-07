@@ -73,18 +73,15 @@ class ChannelSender {
           });
         });
       } else {
-        // آلبوم (carousel) — هر فایل رو با نوع مناسب بفرست
-        // teleproto وقتی فایل‌ها رو به‌صورت آرایه می‌گیره، نوع هر کدوم رو خودکار تشخیص میده
-        // ولی برای ترکیب عکس و ویدیو، باید forceDocument=false بذاریم تا تلگرام خودش تشخیص بده
-        const fileObjects = files.map(f => ({
-          file: f.path,
-          forceDocument: false,  // تلگرام خودش عکس/ویدیو رو تشخیص میده
-        }));
-
+        // آلبوم (carousel) — path فایل‌ها رو به‌صورت string بفرست
+        // teleproto خودش نوع هر فایل (عکس/ویدیو) رو تشخیص میده
+        // forceDocument=false برای همه اعمال میشه
+        const filePaths = files.map(f => f.path);
         result = await retryTgRequest(async () => {
-          return tgClient.sendAlbum(fileObjects, {
+          return tgClient.sendAlbum(filePaths, {
             caption: formatted.text,
             entities: formatted.entities,
+            forceDocument: false,
           });
         });
       }
