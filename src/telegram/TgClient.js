@@ -600,14 +600,12 @@ class TgClient {
 
   /**
    * Send an album (multiple photos/videos in one message)
-   * 
-   * ── FIX برای باگ آلبوم ──
-   * teleproto در SendMultiMedia (ارسال آلبوم) به درستی Entities را پاس نمی‌دهد
-   * و HTML parse کردن برای آلبوم باعث خطای MEDIA_INVALID یا MESSAGE_TOO_LONG می‌شود.
-   * 
-   * راه‌حل: ابتدا آلبوم را بدون Entities ارسال می‌کنیم، سپس با استفاده از
-   * messages.EditMessage، کپشن و Entities را روی اولین پیام آلبوم ست می‌کنیم.
-   * این روش 100% تضمین می‌کند که آلبوم Group شده و Expandable Blockquote کار کند.
+   *
+   * طبق مستندات core.telegram.org:
+   * - messages.SendMultiMedia برای ارسال آلبوم
+   * - teleproto خودش این رو هندل می‌کنه
+   * - مهم: forceDocument=false تا تلگرام خودش نوع هر فایل رو تشخیص بده
+   * - parseMode='html' برای caption
    */
   async sendAlbum(filePaths, options = {}) {
     const entity = await this.resolveChannel();
@@ -616,7 +614,7 @@ class TgClient {
       throw new Error('No files to send');
     }
 
-    // GramJS supports up to 10 items per album
+    // تلگرام حداکثر 10 فایل در هر آلبوم
     const results = [];
     const batches = [];
     for (let i = 0; i < filePaths.length; i += 10) {
@@ -624,28 +622,14 @@ class TgClient {
     }
 
     for (const batch of batches) {
-      const sendOpts = {};
-
-      // فقط متن خام را پاس می‌دهیم تا از خطاهای Parse در teleproto جلوگیری شود
-      sendOpts.caption = options.caption || '';
-      sendOpts.forceDocument = options.forceDocument ?? false;
-      
-      // حذف گزینه‌هایی که ممکن است در _sendAlbum داخلی تداخل ایجاد کنند
-      sendOpts.parseMode = undefined;
-
-      // Remove custom options that teleproto doesn't understand
-      const cleanOpts = { ...sendOpts };
-      delete cleanOpts.entities;
-      delete cleanOpts.formattingEntities;
-      delete cleanOpts.asPhoto;
-      delete cleanOpts.asDocument;
-
       const result = await this.client.sendFile(entity, {
         file: batch,
-        ...cleanOpts,
+        caption: options.caption || '',
+        parseMode: 'html',
+        forceDocument: false,  // تلگرام خودش عکس/ویدیو رو تشخیص میده
+        replyTo: options.replyTo || undefined,
       });
 
-      let firstMsgId = null;
       if (Array.isArray(result)) {
         for (const r of result) {
           results.push({
@@ -653,30 +637,11 @@ class TgClient {
             chatId: r.chatId?.toString?.() || r.peerId?.toString?.() || null,
           });
         }
-        firstMsgId = result[0]?.id;
       } else {
         results.push({
           id: result.id,
           chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
         });
-        firstMsgId = result?.id;
-      }
-
-      // ── FIX: اعمال Entities با EditMessage روی اولین پیام آلبوم ──
-      // این کار باعث می‌شود هم Expandable Blockquote کار کند و هم باگ ParseMode دور زده شود
-      if (firstMsgId && options.entities && options.entities.length > 0) {
-        try {
-          await this.client.invoke(
-            new Api.messages.EditMessage({
-              peer: entity,
-              id: firstMsgId,
-              message: options.caption || '',
-              entities: options.entities,
-            })
-          );
-        } catch (editErr) {
-          log.warn({ msg: 'Could not edit album caption with entities', error: editErr.message });
-        }
       }
     }
 

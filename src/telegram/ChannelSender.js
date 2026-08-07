@@ -73,10 +73,11 @@ class ChannelSender {
           });
         });
       } else {
-        // ── FIX: آلبوم (carousel) — ارسال به صورت گروهی و یکپارچه ──
+        // آلبوم (carousel) — فایل‌ها رو به‌صورت آلبوم بفرست
+        // teleproto خودش نوع هر فایل (عکس/ویدیو) رو تشخیص میده
         const filePaths = files.map(f => f.path);
 
-        // اطمینان از پسوندهای درست
+        // اطمینان از پسوندهای درست (teleproto فقط .jpg/.png/.jpeg رو عکس می‌دونه)
         const fixedPaths = filePaths.map(p => {
           const lower = p.toLowerCase();
           if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') ||
@@ -97,31 +98,27 @@ class ChannelSender {
           return p;
         });
 
-        // ── FIX: استفاده از Raw Entities به جای HTML برای جلوگیری از باگ‌های teleproto ──
-        // htmlCaption در تلگرام برای آلبوم به درستی Parse نمی‌شود و باعث MEDIA_INVALID یا Fail شدن آلبوم می‌گردد.
-        // به جای آن، متن خام + entities را پاس می‌دهیم تا teleproto بتواند آلبوم را Group کند.
+        // قالب HTML برای آلبوم
         const formattedForAlbum = messageFormatter.formatPost(post, accountInfo, { maxLen: 1020 });
+        const htmlCaption = messageFormatter._entitiesToHtml(formattedForAlbum.text, formattedForAlbum.entities);
 
         try {
           result = await retryTgRequest(async () => {
             return tgClient.sendAlbum(fixedPaths, {
-              caption: formattedForAlbum.text,
-              entities: formattedForAlbum.entities,
-              forceDocument: false,
+              caption: htmlCaption,
             });
           });
         } catch (albumErr) {
           log.warn({ msg: 'Album failed, sending files individually', error: albumErr.message });
 
-          // fallback: اولین فایل با caption و entities
+          // fallback: اولین فایل با caption
           const firstFile = files[0];
           const isVideo = firstFile.mime?.startsWith('video/');
           const isImage = firstFile.mime?.startsWith('image/');
 
           result = await retryTgRequest(async () => {
             return tgClient.sendFile(fixedPaths[0], {
-              caption: formattedForAlbum.text,
-              entities: formattedForAlbum.entities,
+              caption: htmlCaption,
               asPhoto: isImage,
               forceDocument: !isImage && !isVideo,
             });
