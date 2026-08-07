@@ -1,22 +1,41 @@
 /**
  * telegram/ChannelSender.js
- * مدیریت ارسال پست‌ها به کانال تلگرام
+ * ارسال پیام‌ها و فایل‌ها به کانال تلگرام — همیشه در یک پیام
+ *
+ * استراتژی:
+ *   - caption فایل: 1024 کاراکتر max
+ *   - کپشن پست به صورت expandable blockquote (collapsed=true) ارسال میشه
+ *   - همه در یک پیام
  */
 
-import { renameSync } from 'fs';
-import tgClient from './TgClient.js';
-import messageFormatter from './MessageFormatter.js';
+import { Api } from 'teleproto';
+import { resolve, join } from 'path';
+import { writeFileSync, mkdirSync, unlinkSync, renameSync } from 'fs';
+import { tgLogger as log } from '../utils/Logger.js';
 import { retryTgRequest } from '../utils/Retry.js';
-import { log } from '../utils/Logger.js';
-import { incrementDailyStat } from '../database/SentItemsRepository.js';
+import { formatBytes } from '../utils/Helpers.js';
+import { incrementDailyStat } from '../database/db.js';
+import messageFormatter from './MessageFormatter.js';
+import tgClient from './TgClient.js';
 
 class ChannelSender {
   constructor() {
+    this.maxConcurrent = 2;
     this.active = 0;
   }
 
   /**
    * Send a post — همیشه در یک پیام
+   *
+   * روش کار:
+   *   1. قالب پیام رو با HTML می‌سازیم (header + footer)
+   *   2. کپشن پست رو به صورت expandable blockquote با raw entities اضافه می‌کنیم
+   *   3. همه رو در یک پیام با sendMessageWithEntities می‌فرستیم
+   *
+   * اگه فایل داشته باشیم:
+   *   - فایل با caption کوتاه (header + footer بدون کپشن)
+   *   - سپس کپشن با expandable blockquote در پیام بعدی
+   *   ولی اگه کل متن در 1024 جا بشه، فقط فایل با caption می‌فرستیم
    */
   async sendPost(post, downloadResult, accountInfo) {
     if (!tgClient.isReady()) {
@@ -54,7 +73,7 @@ class ChannelSender {
           });
         });
       } else {
-        // ── آلبوم (carousel) ──
+        // ── FIX: آلبوم (carousel) — ارسال به صورت گروهی و یکپارچه ──
         const filePaths = files.map(f => f.path);
 
         // اطمینان از پسوندهای درست
@@ -78,8 +97,9 @@ class ChannelSender {
           return p;
         });
 
-        // ── FIX: استفاده از Raw Entities به جای HTML ──
-        // teleproto در SendMultiMedia موقع استفاده از HTML به مشکل می‌خوره. پس Entities خام رو پاس میدیم.
+        // ── FIX: استفاده از Raw Entities به جای HTML برای جلوگیری از باگ‌های teleproto ──
+        // htmlCaption در تلگرام برای آلبوم به درستی Parse نمی‌شود و باعث MEDIA_INVALID یا Fail شدن آلبوم می‌گردد.
+        // به جای آن، متن خام + entities را پاس می‌دهیم تا teleproto بتواند آلبوم را Group کند.
         const formattedForAlbum = messageFormatter.formatPost(post, accountInfo, { maxLen: 1020 });
 
         try {
@@ -93,7 +113,7 @@ class ChannelSender {
         } catch (albumErr) {
           log.warn({ msg: 'Album failed, sending files individually', error: albumErr.message });
 
-          // fallback: اولین فایل با caption
+          // fallback: اولین فایل با caption و entities
           const firstFile = files[0];
           const isVideo = firstFile.mime?.startsWith('video/');
           const isImage = firstFile.mime?.startsWith('image/');
@@ -142,6 +162,7 @@ class ChannelSender {
       const fullCaption = formatted.fullCaptionText || (typeof formattedForAlbum !== 'undefined' && formattedForAlbum?.fullCaptionText);
       if (fullCaption) {
         try {
+          // آیدی پیام ارسال شده رو برای reply بگیر
           let replyToId = null;
           if (Array.isArray(result)) {
             replyToId = result[0]?.id;
@@ -161,10 +182,172 @@ class ChannelSender {
     }
   }
 
-  // ... (تابع _sendCaptionTxt و سایر توابع خصوصی خودت را اینجا بدون تغییر حفظ کن) ...
-  async _sendCaptionTxt(fullCaption, shortcode, replyToId) {
-    // کد اصلی شما برای ارسال فایل متنی کپشن
+  /**
+   * Send caption as txt file (برای کپشن‌های طولانی)
+   * - نام فایل: caption_{shortcode}.txt
+   * - به‌عنوان reply روی پیام اصلی ارسال میشه
+   */
+  async _sendCaptionTxt(captionText, shortcode, replyToId) {
+    const mediaDir = resolve(process.cwd(), 'data', 'media');
+    mkdirSync(mediaDir, { recursive: true });
+
+    const filename = `caption_${shortcode || 'post'}.txt`;
+    const filePath = join(mediaDir, filename);
+
+    writeFileSync(filePath, captionText, 'utf8');
+
+    try {
+      const sendOpts = {
+        caption: '📎 کپشن کامل پست',
+        forceDocument: true,
+      };
+
+      // اگه replyToId داریم، reply کن
+      if (replyToId) {
+        sendOpts.replyTo = replyToId;
+      }
+
+      try {
+        await retryTgRequest(async () => {
+          return tgClient.sendFile(filePath, sendOpts);
+        });
+      } catch (replyErr) {
+        // اگه reply خطا داد، بدون reply بفرست
+        log.warn({ msg: 'Reply failed, sending without reply', error: replyErr.message });
+        delete sendOpts.replyTo;
+        await retryTgRequest(async () => {
+          return tgClient.sendFile(filePath, sendOpts);
+        });
+      }
+
+      log.info({
+        msg: 'Caption txt sent as reply',
+        filename,
+        size: captionText.length,
+        replyTo: replyToId,
+      });
+    } finally {
+      // حذف فایل موقت
+      try { unlinkSync(filePath); } catch {}
+    }
+  }
+
+  /**
+   * Send a story
+   */
+  async sendStory(story, downloadResult, accountInfo) {
+    if (!tgClient.isReady()) {
+      throw new Error('Telegram client not connected');
+    }
+
+    this.active++;
+    try {
+      const files = downloadResult.items;
+      const hasFiles = files.length > 0;
+      const maxLen = hasFiles ? 1020 : 4090;
+      let caption = messageFormatter.formatStory(story, accountInfo, { maxLen });
+
+      if (caption.length > maxLen) {
+        caption = caption.slice(0, maxLen - 10) + '…';
+      }
+
+      let result;
+
+      if (!hasFiles) {
+        result = await retryTgRequest(async () => {
+          return tgClient.sendMessage(caption);
+        });
+      } else {
+        const file = files[0];
+        const isVideo = file.mime?.startsWith('video/');
+        const isImage = file.mime?.startsWith('image/');
+
+        result = await retryTgRequest(async () => {
+          return tgClient.sendFile(file.path, {
+            caption,
+            asPhoto: isImage,
+            forceDocument: !isImage && !isVideo,
+          });
+        });
+      }
+
+      incrementDailyStat('stories_sent');
+      log.info({
+        msg: 'Story sent to Telegram',
+        storyPk: story.pk,
+        captionLength: caption.length,
+      });
+
+      return result;
+    } finally {
+      this.active--;
+    }
+  }
+
+  async sendHighlight(highlight, accountInfo) {
+    if (!tgClient.isReady()) return;
+    try {
+      const text = messageFormatter.formatHighlight(highlight, accountInfo);
+      await retryTgRequest(async () => tgClient.sendMessage(text));
+      incrementDailyStat('highlights_sent');
+    } catch (e) {
+      log.warn({ msg: 'Failed to send highlight', error: e.message });
+    }
+  }
+
+  async sendBanAlert(username, reason) {
+    if (!tgClient.isReady()) return;
+    try {
+      const text = messageFormatter.formatBanAlert(username, reason);
+      await retryTgRequest(async () => tgClient.sendMessage(text));
+    } catch (e) {
+      log.warn({ msg: 'Failed to send ban alert', error: e.message });
+    }
+  }
+
+  async sendDailyStats(stats) {
+    if (!tgClient.isReady()) return;
+    try {
+      const text = messageFormatter.formatDailyStats(stats);
+      await retryTgRequest(async () => tgClient.sendMessage(text));
+    } catch (e) {
+      log.warn({ msg: 'Failed to send daily stats', error: e.message });
+    }
+  }
+
+  async sendError(error, context = {}) {
+    if (!tgClient.isReady()) return;
+    try {
+      const text = messageFormatter.formatError(error, context);
+      await retryTgRequest(async () => tgClient.sendMessage(text));
+    } catch (e) {
+      log.warn({ msg: 'Failed to send error report', error: e.message });
+    }
+  }
+
+  async sendFailureReport(details) {
+    if (!tgClient.isReady()) return;
+    try {
+      const text = messageFormatter.formatFailureReport(details);
+      await retryTgRequest(async () => tgClient.sendMessage(text));
+    } catch (e) {
+      log.warn({ msg: 'Failed to send failure report', error: e.message });
+    }
+  }
+
+  async sendText(text) {
+    if (!tgClient.isReady()) {
+      throw new Error('Telegram client not connected');
+    }
+    return retryTgRequest(async () => {
+      return tgClient.sendMessage(text);
+    });
+  }
+
+  getActiveCount() {
+    return this.active;
   }
 }
 
-export default new ChannelSender();
+const channelSender = new ChannelSender();
+export default channelSender;
