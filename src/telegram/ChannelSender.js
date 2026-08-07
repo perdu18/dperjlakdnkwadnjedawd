@@ -73,11 +73,12 @@ class ChannelSender {
           });
         });
       } else {
-        // آلبوم (carousel) — استفاده از sendFile با آرایه فایل‌ها
-        // teleproto خودش _sendAlbum رو صدا می‌زنه
+        // آلبوم (carousel) — فایل‌ها رو به‌صورت آلبوم بفرست
+        // برای آلبوم، از HTML استفاده می‌کنیم (نه entities)
+        // چون teleproto در آلبوم entities رو فقط برای اولین فایل اعمال می‌کنه
         const filePaths = files.map(f => f.path);
 
-        // اصلاح پسوندها
+        // اطمینان از پسوندهای درست
         const fixedPaths = filePaths.map(p => {
           const lower = p.toLowerCase();
           if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') ||
@@ -98,23 +99,23 @@ class ChannelSender {
           return p;
         });
 
-        // قالب HTML
+        // قالب HTML برای آلبوم (بدون entities)
+        // ابتدا formatPost رو صدا بزن تا fullCaptionText هم گرفته بشه
         const formattedForAlbum = messageFormatter.formatPost(post, accountInfo, { maxLen: 1020 });
         const htmlCaption = messageFormatter._entitiesToHtml(formattedForAlbum.text, formattedForAlbum.entities);
 
-        // استفاده از sendFile با آرایه — teleproto خودش آلبوم می‌سازه
         try {
           result = await retryTgRequest(async () => {
-            return tgClient.sendFile(fixedPaths, {
+            return tgClient.sendAlbum(fixedPaths, {
               caption: htmlCaption,
-              parseMode: 'html',
               forceDocument: false,
+              // بدون entities — از HTML استفاده می‌کنیم
             });
           });
         } catch (albumErr) {
-          log.warn({ msg: 'Album sendFile failed', error: albumErr.message });
+          log.warn({ msg: 'Album failed, sending files individually', error: albumErr.message });
 
-          // fallback: فایل‌ها رو یکی یکی بفرست
+          // fallback: اولین فایل با caption
           const firstFile = files[0];
           const isVideo = firstFile.mime?.startsWith('video/');
           const isImage = firstFile.mime?.startsWith('image/');
@@ -127,6 +128,7 @@ class ChannelSender {
             });
           });
 
+          // بقیه فایل‌ها بدون caption
           for (let i = 1; i < fixedPaths.length; i++) {
             try {
               const f = files[i];
@@ -140,7 +142,7 @@ class ChannelSender {
                 });
               });
             } catch (e) {
-              log.warn({ msg: 'Individual file failed', index: i, error: e.message });
+              log.warn({ msg: 'Could not send individual file', index: i, error: e.message });
             }
           }
         }

@@ -546,12 +546,10 @@ class TgClient {
   }
 
   /**
-   * Send a file (photo/video/document) or album
+   * Send a file (photo/video/document)
    *
-   * طبق مستندات core.telegram.org:
-   * - برای آلبوم: file رو به‌صورت آرایه پاس بده
-   * - teleproto خودش _sendAlbum رو صدا می‌زنه
-   * - forceDocument=false تا تلگرام نوع رسانه رو تشخیص بده
+   * از formattingEntities پشتیبانی می‌کنه برای expandable blockquote.
+   * اگه options.entities داده بشه، parseMode غیرفعال میشه و entities خام استفاده میشه.
    */
   async sendFile(filePath, options = {}) {
     const entity = await this.resolveChannel();
@@ -562,39 +560,37 @@ class TgClient {
     if (options.entities) {
       sendOptions.caption = options.caption || '';
       sendOptions.formattingEntities = options.entities;
+      // parseMode رو null کن تا teleproto HTML parse نکنه
       sendOptions.parseMode = undefined;
     } else {
-      sendOptions.parseMode = options.parseMode || 'html';
+      sendOptions.parseMode = 'html';
       sendOptions.caption = options.caption || '';
     }
 
-    // forceDocument
-    if (options.forceDocument !== undefined) {
-      sendOptions.forceDocument = options.forceDocument;
-    } else if (options.asPhoto) {
+    // Determine if photo or document
+    if (options.asPhoto) {
       sendOptions.forceDocument = false;
     } else if (options.asDocument) {
       sendOptions.forceDocument = true;
-    } else {
-      sendOptions.forceDocument = false;
     }
 
-    if (options.spoiler) sendOptions.spoiler = true;
-    if (options.ttl) sendOptions.ttl = options.ttl;
-    if (options.replyTo) sendOptions.replyTo = options.replyTo;
+    if (options.spoiler) {
+      sendOptions.spoiler = true;
+    }
+
+    if (options.ttl) {
+      sendOptions.ttl = options.ttl;
+    }
+
+    // Remove custom options that teleproto doesn't understand
+    delete sendOptions.entities;
+    delete sendOptions.asPhoto;
+    delete sendOptions.asDocument;
 
     const result = await this.client.sendFile(entity, {
       file: filePath,
       ...sendOptions,
     });
-
-    // result می‌تونه یه پیام یا آرایه‌ای از پیام‌ها (آلبوم) باشه
-    if (Array.isArray(result)) {
-      return result.map(r => ({
-        id: r.id,
-        chatId: r.chatId?.toString?.() || r.peerId?.toString?.() || null,
-      }));
-    }
 
     return {
       id: result.id,
@@ -604,12 +600,6 @@ class TgClient {
 
   /**
    * Send an album (multiple photos/videos in one message)
-   *
-   * طبق مستندات core.telegram.org:
-   * - messages.SendMultiMedia برای ارسال آلبوم
-   * - teleproto خودش این رو هندل می‌کنه
-   * - مهم: forceDocument=false تا تلگرام خودش نوع هر فایل رو تشخیص بده
-   * - parseMode='html' برای caption
    */
   async sendAlbum(filePaths, options = {}) {
     const entity = await this.resolveChannel();
@@ -618,7 +608,7 @@ class TgClient {
       throw new Error('No files to send');
     }
 
-    // تلگرام حداکثر 10 فایل در هر آلبوم
+    // GramJS supports up to 10 items per album
     const results = [];
     const batches = [];
     for (let i = 0; i < filePaths.length; i += 10) {
@@ -626,12 +616,30 @@ class TgClient {
     }
 
     for (const batch of batches) {
+      const sendOpts = {};
+
+      if (options.entities) {
+        // Raw entities mode (برای expandable blockquote)
+        sendOpts.caption = options.caption || '';
+        sendOpts.formattingEntities = options.entities;
+        sendOpts.parseMode = undefined;
+      } else {
+        sendOpts.caption = options.caption || '';
+        sendOpts.parseMode = 'html';
+      }
+
+      // forceDocument باید false باشه (نه undefined) تا teleproto بتونه عکس و ویدیو رو تشخیص بده
+      sendOpts.forceDocument = options.forceDocument ?? false;
+
+      // Remove custom options that teleproto doesn't understand
+      const cleanOpts = { ...sendOpts };
+      delete cleanOpts.entities;
+      delete cleanOpts.asPhoto;
+      delete cleanOpts.asDocument;
+
       const result = await this.client.sendFile(entity, {
         file: batch,
-        caption: options.caption || '',
-        parseMode: 'html',
-        forceDocument: false,  // تلگرام خودش عکس/ویدیو رو تشخیص میده
-        replyTo: options.replyTo || undefined,
+        ...cleanOpts,
       });
 
       if (Array.isArray(result)) {
