@@ -104,12 +104,12 @@ class ChannelSender {
         const formattedForAlbum = messageFormatter.formatPost(post, accountInfo, { maxLen: 1020 });
         const htmlCaption = messageFormatter._entitiesToHtml(formattedForAlbum.text, formattedForAlbum.entities);
 
+        // آلبوم مخلوط عکس و ویدیو — همیشه document برای ارسال در یک پیام
         try {
           result = await retryTgRequest(async () => {
             return tgClient.sendAlbum(fixedPaths, {
               caption: htmlCaption,
-              forceDocument: false,
-              // بدون entities — از HTML استفاده می‌کنیم
+              forceDocument: true, // همه (عکس و ویدیو) به‌عنوان document در یک پیام
             });
           });
         } catch (albumErr) {
