@@ -73,10 +73,16 @@ class ChannelSender {
           });
         });
       } else {
-        // آلبوم — teleproto از formattingEntities در album پشتیبانی می‌کنه
-        const filePaths = files.map(f => f.path);
+        // آلبوم (carousel) — هر فایل رو با نوع مناسب بفرست
+        // teleproto وقتی فایل‌ها رو به‌صورت آرایه می‌گیره، نوع هر کدوم رو خودکار تشخیص میده
+        // ولی برای ترکیب عکس و ویدیو، باید forceDocument=false بذاریم تا تلگرام خودش تشخیص بده
+        const fileObjects = files.map(f => ({
+          file: f.path,
+          forceDocument: false,  // تلگرام خودش عکس/ویدیو رو تشخیص میده
+        }));
+
         result = await retryTgRequest(async () => {
-          return tgClient.sendAlbum(filePaths, {
+          return tgClient.sendAlbum(fileObjects, {
             caption: formatted.text,
             entities: formatted.entities,
           });
@@ -94,10 +100,18 @@ class ChannelSender {
         hasTxtAttachment: !!formatted.fullCaptionText,
       });
 
-      // اگه کپشن طولانی بوده، فایل txt پیوست کن
+      // اگه کپشن طولانی بوده، فایل txt پیوست کن (reply روی پیام اصلی)
       if (formatted.fullCaptionText) {
         try {
-          await this._sendCaptionTxt(formatted.fullCaptionText, post.shortcode);
+          // آیدی پیام ارسال شده رو برای reply بگیر
+          let replyToId = null;
+          if (Array.isArray(result)) {
+            replyToId = result[0]?.id;
+          } else {
+            replyToId = result?.id;
+          }
+
+          await this._sendCaptionTxt(formatted.fullCaptionText, post.shortcode, replyToId);
         } catch (e) {
           log.warn({ msg: 'Could not send caption txt file', error: e.message });
         }
@@ -111,24 +125,39 @@ class ChannelSender {
 
   /**
    * Send caption as txt file (برای کپشن‌های طولانی)
+   * - نام فایل: caption_{shortcode}.txt
+   * - به‌عنوان reply روی پیام اصلی ارسال میشه
    */
-  async _sendCaptionTxt(captionText, shortcode) {
+  async _sendCaptionTxt(captionText, shortcode, replyToId) {
     const mediaDir = resolve(process.cwd(), 'data', 'media');
     mkdirSync(mediaDir, { recursive: true });
 
-    const filename = `caption_${shortcode || 'post'}_${Date.now()}.txt`;
+    const filename = `caption_${shortcode || 'post'}.txt`;
     const filePath = join(mediaDir, filename);
 
     writeFileSync(filePath, captionText, 'utf8');
 
     try {
+      const sendOpts = {
+        caption: '📎 کپشن کامل پست',
+        forceDocument: true,
+      };
+
+      // اگه replyToId داریم، reply کن
+      if (replyToId) {
+        sendOpts.replyTo = replyToId;
+      }
+
       await retryTgRequest(async () => {
-        return tgClient.sendFile(filePath, {
-          caption: '📎 کپشن کامل پست',
-          forceDocument: true,
-        });
+        return tgClient.sendFile(filePath, sendOpts);
       });
-      log.info({ msg: 'Caption txt sent', filename, size: captionText.length });
+
+      log.info({
+        msg: 'Caption txt sent as reply',
+        filename,
+        size: captionText.length,
+        replyTo: replyToId,
+      });
     } finally {
       // حذف فایل موقت
       try { unlinkSync(filePath); } catch {}
