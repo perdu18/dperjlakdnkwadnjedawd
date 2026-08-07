@@ -73,19 +73,18 @@ class ChannelSender {
           });
         });
       } else {
-        // آلبوم (carousel) — فایل‌ها رو با path ساده بفرست
-        // teleproto خودش نوع هر فایل (عکس/ویدیو) رو از پسوند تشخیص میده
+        // آلبوم (carousel) — فایل‌ها رو به‌صورت آلبوم بفرست
+        // برای آلبوم، از HTML استفاده می‌کنیم (نه entities)
+        // چون teleproto در آلبوم entities رو فقط برای اولین فایل اعمال می‌کنه
         const filePaths = files.map(f => f.path);
 
-        // اطمینان از اینکه پسوندها درست هستن
-        // teleproto فقط .jpg/.png/.jpeg رو به‌عنوان عکس تشخیص میده
+        // اطمینان از پسوندهای درست
         const fixedPaths = filePaths.map(p => {
           const lower = p.toLowerCase();
           if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') ||
               lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.gif')) {
             return p;
           }
-          // اگه پسوند ناشناخته هست، بر اساس mime تعیین کن
           const file = files.find(f => f.path === p);
           if (file?.mime?.startsWith('image/')) {
             const newPath = p.replace(/\.[^.]+$/, '.jpg');
@@ -100,34 +99,36 @@ class ChannelSender {
           return p;
         });
 
+        // قالب HTML برای آلبوم (بدون entities)
+        // ابتدا formatPost رو صدا بزن تا fullCaptionText هم گرفته بشه
+        const formattedForAlbum = messageFormatter.formatPost(post, accountInfo, { maxLen: 1020 });
+        const htmlCaption = messageFormatter._entitiesToHtml(formattedForAlbum.text, formattedForAlbum.entities);
+
         try {
-          // تلاش اول: آلبوم
           result = await retryTgRequest(async () => {
             return tgClient.sendAlbum(fixedPaths, {
-              caption: formatted.text,
-              entities: formatted.entities,
+              caption: htmlCaption,
               forceDocument: false,
+              // بدون entities — از HTML استفاده می‌کنیم
             });
           });
         } catch (albumErr) {
-          // اگه آلبوم خطا داد، فایل‌ها رو یکی یکی بفرست
           log.warn({ msg: 'Album failed, sending files individually', error: albumErr.message });
 
-          // اولین فایل رو با caption بفرست
+          // fallback: اولین فایل با caption
           const firstFile = files[0];
           const isVideo = firstFile.mime?.startsWith('video/');
           const isImage = firstFile.mime?.startsWith('image/');
 
           result = await retryTgRequest(async () => {
             return tgClient.sendFile(fixedPaths[0], {
-              caption: formatted.text,
-              entities: formatted.entities,
+              caption: htmlCaption,
               asPhoto: isImage,
               forceDocument: !isImage && !isVideo,
             });
           });
 
-          // بقیه فایل‌ها رو بدون caption بفرست
+          // بقیه فایل‌ها بدون caption
           for (let i = 1; i < fixedPaths.length; i++) {
             try {
               const f = files[i];
@@ -159,7 +160,8 @@ class ChannelSender {
       });
 
       // اگه کپشن طولانی بوده، فایل txt پیوست کن (reply روی پیام اصلی)
-      if (formatted.fullCaptionText) {
+      const fullCaption = formatted.fullCaptionText || (typeof formattedForAlbum !== 'undefined' && formattedForAlbum?.fullCaptionText);
+      if (fullCaption) {
         try {
           // آیدی پیام ارسال شده رو برای reply بگیر
           let replyToId = null;
@@ -169,7 +171,7 @@ class ChannelSender {
             replyToId = result?.id;
           }
 
-          await this._sendCaptionTxt(formatted.fullCaptionText, post.shortcode, replyToId);
+          await this._sendCaptionTxt(fullCaption, post.shortcode, replyToId);
         } catch (e) {
           log.warn({ msg: 'Could not send caption txt file', error: e.message });
         }
@@ -206,9 +208,18 @@ class ChannelSender {
         sendOpts.replyTo = replyToId;
       }
 
-      await retryTgRequest(async () => {
-        return tgClient.sendFile(filePath, sendOpts);
-      });
+      try {
+        await retryTgRequest(async () => {
+          return tgClient.sendFile(filePath, sendOpts);
+        });
+      } catch (replyErr) {
+        // اگه reply خطا داد، بدون reply بفرست
+        log.warn({ msg: 'Reply failed, sending without reply', error: replyErr.message });
+        delete sendOpts.replyTo;
+        await retryTgRequest(async () => {
+          return tgClient.sendFile(filePath, sendOpts);
+        });
+      }
 
       log.info({
         msg: 'Caption txt sent as reply',
