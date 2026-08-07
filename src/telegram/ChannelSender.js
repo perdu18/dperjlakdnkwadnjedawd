@@ -73,11 +73,11 @@ class ChannelSender {
           });
         });
       } else {
-        // آلبوم (carousel) — فایل‌ها رو به‌صورت آلبوم بفرست
-        // teleproto خودش نوع هر فایل (عکس/ویدیو) رو تشخیص میده
+        // آلبوم (carousel) — استفاده از sendFile با آرایه فایل‌ها
+        // teleproto خودش _sendAlbum رو صدا می‌زنه
         const filePaths = files.map(f => f.path);
 
-        // اطمینان از پسوندهای درست (teleproto فقط .jpg/.png/.jpeg رو عکس می‌دونه)
+        // اصلاح پسوندها
         const fixedPaths = filePaths.map(p => {
           const lower = p.toLowerCase();
           if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') ||
@@ -98,20 +98,23 @@ class ChannelSender {
           return p;
         });
 
-        // قالب HTML برای آلبوم
+        // قالب HTML
         const formattedForAlbum = messageFormatter.formatPost(post, accountInfo, { maxLen: 1020 });
         const htmlCaption = messageFormatter._entitiesToHtml(formattedForAlbum.text, formattedForAlbum.entities);
 
+        // استفاده از sendFile با آرایه — teleproto خودش آلبوم می‌سازه
         try {
           result = await retryTgRequest(async () => {
-            return tgClient.sendAlbum(fixedPaths, {
+            return tgClient.sendFile(fixedPaths, {
               caption: htmlCaption,
+              parseMode: 'html',
+              forceDocument: false,
             });
           });
         } catch (albumErr) {
-          log.warn({ msg: 'Album failed, sending files individually', error: albumErr.message });
+          log.warn({ msg: 'Album sendFile failed', error: albumErr.message });
 
-          // fallback: اولین فایل با caption
+          // fallback: فایل‌ها رو یکی یکی بفرست
           const firstFile = files[0];
           const isVideo = firstFile.mime?.startsWith('video/');
           const isImage = firstFile.mime?.startsWith('image/');
@@ -124,7 +127,6 @@ class ChannelSender {
             });
           });
 
-          // بقیه فایل‌ها بدون caption
           for (let i = 1; i < fixedPaths.length; i++) {
             try {
               const f = files[i];
@@ -138,7 +140,7 @@ class ChannelSender {
                 });
               });
             } catch (e) {
-              log.warn({ msg: 'Could not send individual file', index: i, error: e.message });
+              log.warn({ msg: 'Individual file failed', index: i, error: e.message });
             }
           }
         }

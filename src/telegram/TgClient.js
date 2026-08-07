@@ -546,10 +546,12 @@ class TgClient {
   }
 
   /**
-   * Send a file (photo/video/document)
+   * Send a file (photo/video/document) or album
    *
-   * از formattingEntities پشتیبانی می‌کنه برای expandable blockquote.
-   * اگه options.entities داده بشه، parseMode غیرفعال میشه و entities خام استفاده میشه.
+   * طبق مستندات core.telegram.org:
+   * - برای آلبوم: file رو به‌صورت آرایه پاس بده
+   * - teleproto خودش _sendAlbum رو صدا می‌زنه
+   * - forceDocument=false تا تلگرام نوع رسانه رو تشخیص بده
    */
   async sendFile(filePath, options = {}) {
     const entity = await this.resolveChannel();
@@ -560,37 +562,39 @@ class TgClient {
     if (options.entities) {
       sendOptions.caption = options.caption || '';
       sendOptions.formattingEntities = options.entities;
-      // parseMode رو null کن تا teleproto HTML parse نکنه
       sendOptions.parseMode = undefined;
     } else {
-      sendOptions.parseMode = 'html';
+      sendOptions.parseMode = options.parseMode || 'html';
       sendOptions.caption = options.caption || '';
     }
 
-    // Determine if photo or document
-    if (options.asPhoto) {
+    // forceDocument
+    if (options.forceDocument !== undefined) {
+      sendOptions.forceDocument = options.forceDocument;
+    } else if (options.asPhoto) {
       sendOptions.forceDocument = false;
     } else if (options.asDocument) {
       sendOptions.forceDocument = true;
+    } else {
+      sendOptions.forceDocument = false;
     }
 
-    if (options.spoiler) {
-      sendOptions.spoiler = true;
-    }
-
-    if (options.ttl) {
-      sendOptions.ttl = options.ttl;
-    }
-
-    // Remove custom options that teleproto doesn't understand
-    delete sendOptions.entities;
-    delete sendOptions.asPhoto;
-    delete sendOptions.asDocument;
+    if (options.spoiler) sendOptions.spoiler = true;
+    if (options.ttl) sendOptions.ttl = options.ttl;
+    if (options.replyTo) sendOptions.replyTo = options.replyTo;
 
     const result = await this.client.sendFile(entity, {
       file: filePath,
       ...sendOptions,
     });
+
+    // result می‌تونه یه پیام یا آرایه‌ای از پیام‌ها (آلبوم) باشه
+    if (Array.isArray(result)) {
+      return result.map(r => ({
+        id: r.id,
+        chatId: r.chatId?.toString?.() || r.peerId?.toString?.() || null,
+      }));
+    }
 
     return {
       id: result.id,
