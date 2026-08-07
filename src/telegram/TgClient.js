@@ -582,6 +582,11 @@ class TgClient {
       sendOptions.ttl = options.ttl;
     }
 
+    // Remove custom options that teleproto doesn't understand
+    delete sendOptions.entities;
+    delete sendOptions.asPhoto;
+    delete sendOptions.asDocument;
+
     const result = await this.client.sendFile(entity, {
       file: filePath,
       ...sendOptions,
@@ -623,14 +628,17 @@ class TgClient {
         sendOpts.parseMode = 'html';
       }
 
+      // Remove custom options that teleproto doesn't understand
+      const cleanOpts = { ...sendOpts };
+      delete cleanOpts.entities;
+      delete cleanOpts.asPhoto;
+      delete cleanOpts.asDocument;
+      delete cleanOpts.forceDocument;
+
       const result = await this.client.sendFile(entity, {
         file: batch,
-        ...sendOpts,
-        ...options,
+        ...cleanOpts,
       });
-
-      // Clean up options that shouldn't be passed to teleproto
-      delete result.entities;
 
       if (Array.isArray(result)) {
         for (const r of result) {
