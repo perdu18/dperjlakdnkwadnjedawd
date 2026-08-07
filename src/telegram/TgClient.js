@@ -628,12 +628,14 @@ class TgClient {
         sendOpts.parseMode = 'html';
       }
 
+      // forceDocument باید false باشه (نه undefined) تا teleproto بتونه عکس و ویدیو رو تشخیص بده
+      sendOpts.forceDocument = options.forceDocument ?? false;
+
       // Remove custom options that teleproto doesn't understand
       const cleanOpts = { ...sendOpts };
       delete cleanOpts.entities;
       delete cleanOpts.asPhoto;
       delete cleanOpts.asDocument;
-      delete cleanOpts.forceDocument;
 
       const result = await this.client.sendFile(entity, {
         file: batch,
