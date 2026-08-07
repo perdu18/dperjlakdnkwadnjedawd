@@ -9,7 +9,8 @@
  */
 
 import { Api } from 'teleproto';
-import { resolve } from 'path';
+import { resolve, join } from 'path';
+import { writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { tgLogger as log } from '../utils/Logger.js';
 import { retryTgRequest } from '../utils/Retry.js';
 import { formatBytes } from '../utils/Helpers.js';
@@ -90,11 +91,47 @@ class ChannelSender {
         filesCount: files.length,
         captionLength: formatted.text.length,
         entitiesCount: formatted.entities.length,
+        hasTxtAttachment: !!formatted.fullCaptionText,
       });
+
+      // اگه کپشن طولانی بوده، فایل txt پیوست کن
+      if (formatted.fullCaptionText) {
+        try {
+          await this._sendCaptionTxt(formatted.fullCaptionText, post.shortcode);
+        } catch (e) {
+          log.warn({ msg: 'Could not send caption txt file', error: e.message });
+        }
+      }
 
       return result;
     } finally {
       this.active--;
+    }
+  }
+
+  /**
+   * Send caption as txt file (برای کپشن‌های طولانی)
+   */
+  async _sendCaptionTxt(captionText, shortcode) {
+    const mediaDir = resolve(process.cwd(), 'data', 'media');
+    mkdirSync(mediaDir, { recursive: true });
+
+    const filename = `caption_${shortcode || 'post'}_${Date.now()}.txt`;
+    const filePath = join(mediaDir, filename);
+
+    writeFileSync(filePath, captionText, 'utf8');
+
+    try {
+      await retryTgRequest(async () => {
+        return tgClient.sendFile(filePath, {
+          caption: '📎 کپشن کامل پست',
+          forceDocument: true,
+        });
+      });
+      log.info({ msg: 'Caption txt sent', filename, size: captionText.length });
+    } finally {
+      // حذف فایل موقت
+      try { unlinkSync(filePath); } catch {}
     }
   }
 

@@ -25,6 +25,61 @@ class MessageFormatter {
     } catch { return ''; }
   }
 
+  /**
+   * تبدیل به تاریخ شمسی (Jalali)
+   * الگوریتم تبدیل میلادی به شمسی
+   */
+  toJalali(gy, gm, gd) {
+    const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let jy;
+    if (gy > 1600) {
+      jy = 979;
+      gy -= 1600;
+    } else {
+      jy = 0;
+      gy -= 621;
+    }
+    const gy2 = (gm > 2) ? (gy + 1) : gy;
+    let days = (365 * gy) + Math.floor((gy2 + 3) / 4) - Math.floor((gy2 + 99) / 100) + Math.floor((gy2 + 399) / 400) - 80 + gd + g_d_m[gm - 1];
+    jy += 33 * Math.floor(days / 12053);
+    days %= 12053;
+    jy += 4 * Math.floor(days / 1461);
+    days %= 1461;
+    if (days > 365) {
+      jy += Math.floor((days - 1) / 365);
+      days = (days - 1) % 365;
+    }
+    const jm = (days < 186) ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
+    const jd = 1 + ((days < 186) ? (days % 31) : ((days - 186) % 30));
+    return { jy, jm, jd };
+  }
+
+  formatJalaliTime(ts) {
+    if (!ts) return '';
+    try {
+      const date = new Date(ts * 1000);
+      const tehranDate = new Intl.DateTimeFormat('en-GB', {
+        timeZone: TEHRAN_TIMEZONE,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      }).formatToParts(date);
+
+      const parts = {};
+      for (const p of tehranDate) {
+        parts[p.type] = parseInt(p.value, 10);
+      }
+
+      const jalali = this.toJalali(parts.year, parts.month, parts.day);
+      const hh = String(parts.hour).padStart(2, '0');
+      const mm = String(parts.minute).padStart(2, '0');
+      const jyStr = jalali.jy;
+      const jmStr = String(jalali.jm).padStart(2, '0');
+      const jdStr = String(jalali.jd).padStart(2, '0');
+
+      return `${jyStr}/${jmStr}/${jdStr} ${hh}:${mm}`;
+    } catch { return ''; }
+  }
+
   formatRelativeTime(ts) {
     if (!ts) return '';
     const diff = Date.now() - (ts * 1000);
@@ -125,7 +180,7 @@ class MessageFormatter {
 
       text += '\n';
 
-      // Stats
+      // Stats — داخل expandable blockquote
       const s = [];
       const fc = author.followerCount || accountInfo?.followerCount;
       const fgc = author.followingCount || accountInfo?.followingCount;
@@ -134,12 +189,25 @@ class MessageFormatter {
       if (fgc) s.push(`👤 فالووینگ: ${this.fmtNum(fgc)}`);
       if (mc) s.push(`📸 پست‌ها: ${this.fmtNum(mc)}`);
       if (s.length) {
-        const statsLine = `📊 آمار اکانت: ${s.join('  |  ')}`;
-        text += statsLine + '\n';
+        text += '📊 آمار اکانت:\n';
+        const statsText = s.join('\n');
+        const statsOffset = text.length;
+        text += statsText;
+
+        // Expandable blockquote for stats
+        entities.push(new Api.MessageEntityBlockquote({
+          offset: statsOffset,
+          length: statsText.length,
+          collapsed: true,  // ← expandable!
+        }));
+        text += '\n';
       }
     }
 
     // ── Caption with expandable blockquote ──
+    // اگه کپشن خیلی طولانی باشه، به‌جای truncate، فلگ fullCaptionNeeded رو ست کن
+    // تا ChannelSender اون رو به‌عنوان فایل txt بفرسته
+    let fullCaptionText = null;
     if (post.caption) {
       const captionLabel = '📝 کپشن:\n';
       text += '\n' + captionLabel;
@@ -159,6 +227,12 @@ class MessageFormatter {
           length: captionText.length,
           collapsed: true,  // ← expandable!
         }));
+
+        // اگه کپشن truncate شده، کل کپشن رو هم نگه دار برای فایل txt
+        if (post.caption.length > availableForCaption) {
+          fullCaptionText = post.caption;
+          text += '\n\n📎 کپشن کامل در فایل txt پیوست شد';
+        }
       }
     }
 
@@ -178,7 +252,10 @@ class MessageFormatter {
       fParts.push({ text: linkLabel, url: `https://instagram.com/p/${post.shortcode}`, isLink: true });
     }
     if (post.takenAt) {
-      fParts.push({ text: `🕐 زمان: ${this.formatIranTime(post.takenAt)} (${this.formatRelativeTime(post.takenAt)})` });
+      const gregorian = this.formatIranTime(post.takenAt);
+      const jalali = this.formatJalaliTime(post.takenAt);
+      const relative = this.formatRelativeTime(post.takenAt);
+      fParts.push({ text: `🕐 میلادی: ${gregorian}\n📅 شمسی: ${jalali} (${relative})` });
     }
     if (post.location?.name) {
       fParts.push({ text: `📍 موقعیت: ${post.location.name}` });
@@ -231,7 +308,7 @@ class MessageFormatter {
       text = text.slice(0, maxLen - 10) + '…';
     }
 
-    return { text, entities };
+    return { text, entities, fullCaptionText };
   }
 
   /**
