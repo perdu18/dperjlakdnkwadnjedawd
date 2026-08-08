@@ -68,6 +68,7 @@ class IgClient {
     this.sessionSource = null;
     this.sessionFingerprint = null;
     this.lastVerification = null;
+	this.verificationDeferred = false;   // FIX(bug1): «قابل بررسی نبود» ≠ «نامعتبر»
     this.onSessionInvalid = null;
   }
 
@@ -84,24 +85,10 @@ class IgClient {
     this.sessionFilePath = join(sessionDir, `${config.instagram.username}.web-session.json`);
   }
 
-  async login() {
-    const restored = await this._restoreSession();
-    if (restored) {
-      log.info('Instagram session restored');
-      const valid = await this._verifySession();
-      if (valid) {
-        this.isLoggedIn = true;
-        this.lastError = null;
-        this.lastErrorAt = null;
-        log.info({ msg: 'Session verified, login successful', verification: this.lastVerification?.method });
-        return;
-      }
-      this.lastError = `Instagram session verification failed: ${this.lastVerification?.reason || 'no authenticated endpoint succeeded'}`;
-      this.lastErrorAt = new Date().toISOString();
-      this.isLoggedIn = false;
-      throw new Error('Instagram session is invalid or expired. Run: npm run setup:instagram');
-    }
+async login() {
+  const restored = await this._restoreSession();
 
+  if (!restored) {
     if (!this.lastError) {
       this.lastError = `Session file not found at: ${this.sessionFilePath}`;
       this.lastErrorAt = new Date().toISOString();
@@ -110,6 +97,40 @@ class IgClient {
     throw new Error(`${this.lastError}. Run: npm run setup:instagram`);
   }
 
+  log.info('Instagram session restored');
+
+  try {
+    const valid = await this._verifySession();
+    if (valid) {
+      this.isLoggedIn = true;
+      this.verificationDeferred = false;
+      this.lastError = null;
+      this.lastErrorAt = null;
+      log.info({ msg: 'Session verified, login successful', verification: this.lastVerification?.method });
+      return;
+    }
+
+    // فقط زمانی به اینجا می‌رسیم که اینستاگرام واقعاً پاسخ داده و سشن را رد کرده
+    this.isLoggedIn = false;
+    this.verificationDeferred = false;
+    this.lastError = `Instagram session verification failed: ${this.lastVerification?.reason || 'authentication rejected'}`;
+    this.lastErrorAt = new Date().toISOString();
+    throw new InstagramAuthError('Instagram session is invalid or expired. Run: npm run setup:instagram');
+  } catch (e) {
+    // FIX(bug1): cooldown/شبکه یعنی «وضعیت نامشخص»؛ سشن را باطل اعلام نمی‌کنیم
+    if (e instanceof InstagramCooldownError) {
+      this.isLoggedIn = false;
+      this.verificationDeferred = true;
+      this.lastError = `Instagram verification deferred (session state unknown): ${e.message}`;
+      this.lastErrorAt = new Date().toISOString();
+      log.warn({
+        msg: 'Instagram verification deferred by cooldown; session NOT marked invalid',
+        remainingMs: this.getCooldownRemainingMs(),
+      });
+    }
+    throw e;
+  }
+}
   async _restoreSession() {
     const sessionBase64 = process.env.IG_SESSION_BASE64;
     if (sessionBase64?.trim()) {
@@ -187,54 +208,61 @@ class IgClient {
     return true;
   }
 
-  _buildAxiosInstance() {
-    const cookieStr = Object.entries(this.session.cookies)
-      .map(([k, v]) => `${k}=${v}`)
-      .join('; ');
-    const agent = this._buildStaticProxyAgent();
+_buildAxiosInstance() {
+  const cookieStr = Object.entries(this.session.cookies)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ');
+  const agent = this._buildStaticProxyAgent();
 
-    this.axiosInstance = axios.create({
-      timeout: 20000,
-      maxRedirects: 0,
-      validateStatus: (status) => status < 500,
-      ...(agent ? { httpsAgent: agent, proxy: false } : {}),
-      headers: {
-        'User-Agent': this.session.userAgent || BROWSER_UA,
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'X-IG-App-ID': IG_APP_ID,
-        'Cookie': cookieStr,
-        'X-CSRFToken': this.session.cookies.csrftoken,
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-origin',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-ASBD-ID': '198477',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-      },
-    });
+  this.axiosInstance = axios.create({
+    baseURL: IG_BASE,
+    timeout: 30000,
+    maxRedirects: 0,
+    // FIX(bug3): همه‌ی status ها باید به دست ما برسند، وگرنه شرط‌های
+    // status === 429 / 3xx در _assertApiResponse هرگز اجرا نمی‌شوند
+    validateStatus: () => true,
+    decompress: true,
+    ...(agent ? { httpsAgent: agent, httpAgent: agent, proxy: false } : {}),
+    headers: {
+      // باید *همان* User-Agent زمان ساخت سشن باشد
+      'User-Agent': this.session.userAgent || BROWSER_UA,
+      'Accept': '*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'X-IG-App-ID': IG_APP_ID,          // بدون این هدر، پاسخ HTML لاگین است نه JSON کاربر
+      'X-ASBD-ID': '129',
+      'X-IG-WWW-Claim': '0',
+      'Cookie': cookieStr,
+      'X-CSRFToken': this.session.cookies.csrftoken,
+      'Origin': IG_BASE,
+      'Referer': `${IG_BASE}/`,
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-origin',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+    },
+  });
 
-    this.axiosInstance.interceptors.request.use(async request => {
-      await this._paceRequest();
-      return request;
-    });
-    this.axiosInstance.interceptors.response.use(
-      response => {
-        this._applySafetyCooldown(response.status, response.data, response.headers);
-        return response;
-      },
-      error => {
-        this._applySafetyCooldown(
-          error.response?.status,
-          error.response?.data,
-          error.response?.headers
-        );
-        throw error;
-      }
-    );
-  }
-
+  this.axiosInstance.interceptors.request.use(async request => {
+    await this._paceRequest();
+    return request;
+  });
+  this.axiosInstance.interceptors.response.use(
+    response => {
+      this._applySafetyCooldown(response.status, response.data, response.headers);
+      return response;
+    },
+    error => {
+      this._applySafetyCooldown(
+        error.response?.status,
+        error.response?.data,
+        error.response?.headers
+      );
+      throw error;
+    }
+  );
+}
   _buildStaticProxyAgent() {
     if (config.proxy.mode !== 'static' || !config.proxy.staticUrl) return null;
     try {
@@ -341,71 +369,128 @@ class IgClient {
     }
   }
 
-  async _verifySession() {
-    const userId = String(this.session.cookies.ds_user_id);
-    const checks = [];
-    const endpoints = [
-      {
-        method: 'current_user',
-        url: `${IG_API}/web/accounts/current_user/?include_dummy=true`,
-        extract: data => data?.viewer?.is_logged_in === true
-          ? data.viewer
-          : (data?.user || data?.data?.user || null),
-      },
-      {
-        method: 'private_user_info',
-        url: `${IG_API}/users/${encodeURIComponent(userId)}/info/`,
-        extract: data => data?.user || null,
-      },
-      {
-        method: 'account_edit',
-        url: `${IG_BASE}/accounts/edit/?__a=1&__d=dis`,
-        extract: data => data?.form_data || data?.user || data?.data?.user || null,
-      },
-    ];
-
-    for (const endpoint of endpoints) {
-      try {
-        const response = await this.axiosInstance.get(endpoint.url, {
-          headers: { 'Referer': `${IG_BASE}/` },
-        });
-        const message = response.data?.message || response.data?.error_type || null;
-        const user = endpoint.extract(response.data);
-        checks.push({ method: endpoint.method, status: response.status, message });
-
-        if (response.status === 200 && user) {
-          this.currentUser = user;
-          this.lastVerification = {
-            valid: true,
-            method: endpoint.method,
-            checkedAt: new Date().toISOString(),
-            checks,
-          };
-          log.info({ msg: 'Instagram session verified', method: endpoint.method, userId });
-          return true;
-        }
-      } catch (e) {
-        checks.push({ method: endpoint.method, error: e.message });
-      }
-    }
-
-    const explicitAuthFailure = checks.find(check =>
-      check.status === 401
-      || check.status === 403
-      || String(check.message || '').toLowerCase().includes('login_required'));
+/**
+ * FIX(bug1+bug2+bug3):
+ *  - burst سه‌تایی حذف شد؛ endpoint اصلی برای سشن وب web_form_data است.
+ *    (i.instagram.com/.../current_user/ یک endpoint اپ موبایل است و با
+ *     کوکی وب + UA دسکتاپ عملاً همیشه 4xx/429 می‌دهد و فقط rate limit می‌سوزاند)
+ *  - fallback فقط با فاصله‌ی ≥ ۳۰ ثانیه و فقط اگر پاسخ واقعی گرفته باشیم.
+ *  - اگر هیچ پاسخ واقعی از اینستاگرام نگرفتیم، نتیجه «نامشخص» است، نه «نامعتبر».
+ */
+async _verifySession() {
+  if (this.isCoolingDown()) {
+    const remaining = this.getCooldownRemainingMs();
     this.lastVerification = {
       valid: false,
+      unknown: true,
       method: null,
       checkedAt: new Date().toISOString(),
-      reason: explicitAuthFailure
-        ? `Instagram rejected authentication (${explicitAuthFailure.message || explicitAuthFailure.status})`
-        : 'Authenticated endpoints returned no recognized user payload',
+      reason: `Verification skipped: cooldown active for ${Math.ceil(remaining / 1000)}s. Session state unknown.`,
+      checks: [],
+    };
+    throw new InstagramCooldownError(remaining, this._cooldownReason || 'verification_deferred');
+  }
+
+  const userId = String(this.session.cookies.ds_user_id);
+  const checks = [];
+  const endpoints = [
+    {
+      method: 'web_form_data',
+      url: `${IG_API}/accounts/edit/web_form_data/`,
+      extract: data => data?.form_data || null,
+      gapMs: 0,
+    },
+    {
+      method: 'private_user_info',
+      url: `${IG_API}/users/${encodeURIComponent(userId)}/info/`,
+      extract: data => data?.user || null,
+      gapMs: 30_000,
+    },
+  ];
+
+  for (const endpoint of endpoints) {
+    if (endpoint.gapMs > 0) {
+      if (this.isCoolingDown()) break;          // fallback را در cooldown نمی‌زنیم
+      await sleep(endpoint.gapMs);
+    }
+
+    try {
+      const response = await this.axiosInstance.get(endpoint.url, {
+        headers: { 'Referer': `${IG_BASE}/accounts/edit/` },
+      });
+      const message = response.data?.message || response.data?.error_type || null;
+      const user = endpoint.extract(response.data);
+      checks.push({ method: endpoint.method, status: response.status, message });
+
+      if (response.status === 200 && user) {
+        this.currentUser = {
+          id: user.pk ?? user.id ?? userId,
+          username: user.username || this.session.username,
+        };
+        this.lastVerification = {
+          valid: true,
+          method: endpoint.method,
+          checkedAt: new Date().toISOString(),
+          checks,
+        };
+        log.info({ msg: 'Instagram session verified', method: endpoint.method, userId });
+        return true;
+      }
+
+      if (response.status === 429) break;       // بی‌فایده است ادامه دهیم
+    } catch (e) {
+      checks.push({ method: endpoint.method, error: e.message });
+      if (e instanceof InstagramCooldownError) break;
+    }
+  }
+
+  const hadRealResponse = checks.some(c => typeof c.status === 'number' && c.status !== 429);
+  const explicitAuthFailure = checks.find(check =>
+    check.status === 401
+    || check.status === 403
+    || String(check.message || '').toLowerCase().includes('login_required'));
+
+  if (explicitAuthFailure) {
+    this.lastVerification = {
+      valid: false,
+      unknown: false,
+      method: null,
+      checkedAt: new Date().toISOString(),
+      reason: `Instagram rejected authentication (${explicitAuthFailure.message || explicitAuthFailure.status})`,
       checks,
     };
-    log.warn({ msg: 'Instagram session verification failed', verification: this.lastVerification });
+    log.warn({ msg: 'Instagram session rejected', verification: this.lastVerification });
     return false;
   }
 
+  if (!hadRealResponse) {
+    // هیچ پاسخی از اینستاگرام نداشتیم (429 داخلی/شبکه) => وضعیت نامشخص
+    this.lastVerification = {
+      valid: false,
+      unknown: true,
+      method: null,
+      checkedAt: new Date().toISOString(),
+      reason: 'Verification could not run (rate limit / network). Session state unknown.',
+      checks,
+    };
+    log.warn({ msg: 'Instagram verification could not run', verification: this.lastVerification });
+    throw new InstagramCooldownError(
+      this.getCooldownRemainingMs() || 60_000,
+      this._cooldownReason || 'verification_deferred'
+    );
+  }
+
+  this.lastVerification = {
+    valid: false,
+    unknown: true,
+    method: null,
+    checkedAt: new Date().toISOString(),
+    reason: 'Authenticated endpoints returned no recognized user payload (session state uncertain)',
+    checks,
+  };
+  log.warn({ msg: 'Instagram session verification inconclusive', verification: this.lastVerification });
+  return false;
+}
   _assertApiResponse(response, context) {
     const status = response?.status;
     const data = response?.data;
@@ -958,6 +1043,7 @@ class IgClient {
       isLoggedIn: this.isLoggedIn,
       sessionFile: sessionFileInfo,
       hasSession: !!this.session,
+	  verificationDeferred: this.verificationDeferred,
       sessionSource: this.sessionSource,
       sessionFingerprint: this.sessionFingerprint,
       lastVerification: this.lastVerification,

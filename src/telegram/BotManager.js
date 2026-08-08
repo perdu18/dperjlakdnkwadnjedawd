@@ -385,6 +385,19 @@ class BotManager {
       return;
     }
 
+    // FIX(bug5): دکمه‌هایی که به اینستاگرام دست می‌زنند باید cooldown را رعایت کنند.
+    // قبلاً poll:username مستقیم getUserByUsername می‌زد و ۹۰۰ ثانیه cooldown می‌ساخت.
+    const touchesInstagram = data.startsWith('poll:') || data === 'retry';
+    if (touchesInstagram && igClient.isCoolingDown && igClient.isCoolingDown()) {
+      const seconds = Math.ceil(igClient.getCooldownRemainingMs() / 1000);
+      await this.bot.answerCallbackQuery(query.id, {
+        text: `⏳ اینستاگرام در cooldown است — ${seconds} ثانیه دیگر تلاش کنید`,
+        show_alert: true,
+      });
+      log.warn({ msg: 'Callback blocked by Instagram cooldown', data, seconds });
+      return;
+    }
+
     await this.bot.answerCallbackQuery(query.id);
 
     log.info({ msg: 'Callback query', data, userId });
@@ -1059,6 +1072,22 @@ ${account.last_error ? `📝 <b>آخرین خطا:</b> <code>${this._escapeHtml(
   }
 
   async _cmdPoll(chatId, args) {
+    // FIX(bug5): محافظت در سطح دستور (هم برای /poll و هم برای دکمه‌ها)
+    if (igClient.isCoolingDown && igClient.isCoolingDown()) {
+      const seconds = Math.ceil(igClient.getCooldownRemainingMs() / 1000);
+      await this._sendMessage(chatId,
+        `⏳ اینستاگرام در cooldown است.\n\nحدود <b>${seconds}</b> ثانیه دیگر امکان چک وجود دارد.`);
+      return;
+    }
+    const requested = String(args?.[0] || '').replace(/^@/, '').trim().toLowerCase();
+    if (requested && !TrackedAccountsRepository.getByUsername(requested)) {
+      await this._sendMessage(chatId,
+        `⛔️ <b>@${this._escapeHtml(requested)}</b> در لیست اکانت‌های ردیابی‌شده نیست.\n\n` +
+        'poll دستی حساب‌های خارج از لیست، rate limit اینستاگرام را می‌سوزاند.\n' +
+        'اول با /add اضافه کنید.');
+      return;
+    }
+
     if (args.length === 0) {
       await this._sendMessage(chatId, '❌ استفاده: /poll &lt;username&gt;');
       return;

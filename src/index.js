@@ -107,17 +107,23 @@ async function initServices() {
     pollingWorker.stop();
     startInstagramRetryLoop();
   };
-  try {
-    igClient.init();
-    await igClient.login();
-    log.info('Instagram client ready');
-  } catch (e) {
+try {
+  igClient.init();
+  await igClient.login();
+  log.info('Instagram client ready');
+} catch (e) {
+  // FIX(bug1/bug4): cooldown یعنی «هنوز نمی‌دانیم»، نه «سشن خراب»
+  if (e.name === 'InstagramCooldownError') {
+    log.warn({
+      msg: 'Instagram verification deferred by cooldown (session NOT invalid)',
+      error: e.message,
+    });
+  } else {
     log.error({ msg: 'Instagram initialization failed', error: e.message });
     logEvent('error', 'App', 'Instagram init failed', { error: e.message });
-    startInstagramRetryLoop();
-    // Don't throw - continue with other services
   }
-
+  startInstagramRetryLoop();
+}
   // 4. Init Telegram — مهم: Bot Manager و MTProto مستقل از هم اجرا میشن
   //    تا اگه MTProto زمان‌بر باشه (مثلاً auto-find proxy)، Bot Manager کار کنه
 
@@ -220,54 +226,95 @@ async function seedTrackedAccounts() {
 
   log.info({ msg: 'Seeding tracked accounts', count: accounts.length });
 
+  const failures = [];
   for (const username of accounts) {
     try {
-      TrackedAccountsRepository.add(username);
-      log.debug({ msg: 'Account added/updated', username });
+      // FIX(bug6): add() حالا is_active = 1 را هم روی conflict ست می‌کند،
+      // پس اکانتِ قبلاً pause شده دوباره فعال می‌شود
+      TrackedAccountsRepository.add(username, { activate: true });
+      const row = TrackedAccountsRepository.getByUsername(username);
+      if (!row) throw new Error('row not found right after insert');
+      if (!row.is_active) TrackedAccountsRepository.setActive(username, true);
+      log.info({ msg: 'Account seeded', username, id: row.id });
     } catch (e) {
-      log.warn({ msg: 'Could not add account', username, error: e.message });
+      failures.push({ username, error: e.message });
+      log.error({ msg: 'Could not add account', username, error: e.message });
+      logEvent('error', 'App', 'Seed account failed', { username, error: e.message });
     }
   }
 
   const total = TrackedAccountsRepository.countActive();
-  log.info({ msg: 'Active tracked accounts', total });
-}
+  log.info({ msg: 'Active tracked accounts', total, failures: failures.length });
 
+  if (total === 0) {
+    // بدون این، polling سالم هم هیچ کاری برای انجام ندارد
+    const message = `No active tracked accounts after seeding (${failures.length} failures)`;
+    log.error({ msg: message, failures });
+    logEvent('error', 'App', message, { failures });
+    throw new Error(message);
+  }
+}
 /**
  * Simple HTTP server for health checks (Railway)
  *
  * این سرور بلافاصله بعد از استارت برنامه راه می‌افته و همیشه پاسخ میده.
  * حتی اگه سرویس‌ها هنوز آماده نشده باشن، status رو "starting" برمی‌گردونه.
  */
+/**
+ * Simple HTTP server for health checks (Railway)
+ *
+ * FIX(bug8): احراز هویت به‌صورت middleware روی همه‌ی مسیرهای حساس
+ *            (/debug*, /stats, /refresh-proxies) اعمال می‌شود.
+ * FIX(bug7): پاسخ‌دهی idempotent با فلگ responded (بدون ERR_HTTP_HEADERS_SENT).
+ * FIX(bug13): در production جزئیات خطا/شماره تلفن عمومی نمایش داده نمی‌شود.
+ */
 function startHttpServer() {
   const port = config.app.port || 3000;
+
+  const PROTECTED_PATHS = ['/debug', '/stats', '/refresh-proxies'];
+
+  const isProtected = (pathname) =>
+    PROTECTED_PATHS.some(p => pathname === p || pathname.startsWith(`${p}/`));
+
+  const isAuthorized = (req) => {
+    const authorization = req.headers.authorization || '';
+    const providedToken = authorization.startsWith('Bearer ')
+      ? authorization.slice(7).trim()
+      : (req.headers['x-debug-token'] || '').toString().trim();
+    const expectedToken = (config.app.debugApiToken || '').trim();
+    if (!config.app.isProduction) return true;
+    return !!expectedToken && providedToken === expectedToken;
+  };
 
   httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${port}`);
 
-    // Diagnostics expose operational data and some routes trigger Instagram
-    // requests. Require a production secret for the entire debug namespace.
-    if (url.pathname === '/debug' || url.pathname.startsWith('/debug/')) {
-      const authorization = req.headers.authorization || '';
-      const providedToken = authorization.startsWith('Bearer ')
-        ? authorization.slice(7)
-        : req.headers['x-debug-token'];
-      const expectedToken = config.app.debugApiToken;
-      if (config.app.isProduction && (!expectedToken || providedToken !== expectedToken)) {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Debug operation is disabled or unauthorized' }));
-        return;
-      }
+    // پاسخ‌دهیِ یک‌بار مصرف — از double writeHead جلوگیری می‌کند
+    let responded = false;
+    let timeoutId = null;
+    const send = (code, body) => {
+      if (responded || res.headersSent) return;
+      responded = true;
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+      res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(body, null, 2));
+    };
+
+    if (isProtected(url.pathname) && !isAuthorized(req)) {
+      send(403, { error: 'Unauthorized' });
+      return;
     }
 
-    // Always return 200 on / and /health (so Railway healthcheck passes)
+    // ---------- /health و / ----------
     if (url.pathname === '/health' || url.pathname === '/') {
       const stats = {
         status: servicesReady ? 'ok' : 'starting',
         uptime: process.uptime(),
         timestamp: new Date().toISOString(),
         services: {
-          instagram: igClient.isLoggedIn ? 'connected' : 'disconnected',
+          instagram: igClient.isLoggedIn
+            ? 'connected'
+            : (igClient.verificationDeferred ? 'unknown (cooldown)' : 'disconnected'),
           telegram: tgClient.isReady() ? 'connected' : 'disconnected',
           proxy: proxyManager.getStats ? proxyManager.getStats() : null,
         },
@@ -276,32 +323,35 @@ function startHttpServer() {
       };
 
       if (startupError) {
-        stats.startupError = startupError.message;
+        stats.startupError = config.app.isProduction ? 'startup error (see /debug)' : startupError.message;
       }
 
-      // Add Instagram last error for debugging
-      if (!igClient.isLoggedIn && igClient.lastError) {
-        stats.instagramError = igClient.lastError;
-        stats.instagramErrorAt = igClient.lastErrorAt;
+      // FIX(bug8/13): جزئیات خطای اینستاگرام در production عمومی نشود
+      if (!igClient.isLoggedIn) {
+        stats.instagramState = igClient.verificationDeferred ? 'verification_deferred' : 'not_logged_in';
+        if (!config.app.isProduction && igClient.lastError) {
+          stats.instagramError = igClient.lastError;
+          stats.instagramErrorAt = igClient.lastErrorAt;
+        }
       }
 
-      // Always return 200 so Railway doesn't kill the container
-      // (we report status in the body)
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(stats, null, 2));
+      send(200, stats);
       return;
     }
 
+    // ---------- /debug ----------
     if (url.pathname === '/debug') {
-      const debugInfo = {
+      const telegramDebug = tgClient.getDebugInfo
+        ? tgClient.getDebugInfo()
+        : { isReady: tgClient.isReady ? tgClient.isReady() : false };
+
+      send(200, {
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         servicesReady,
         startupError: startupError?.message || null,
         instagram: igClient.getDebugInfo ? igClient.getDebugInfo() : null,
-        telegram: tgClient.getDebugInfo ? tgClient.getDebugInfo() : {
-          isReady: tgClient.isReady ? tgClient.isReady() : false,
-        },
+        telegram: telegramDebug,
         botManager: {
           isRunning: botManager.isRunning,
           lastStartError: botManager.lastStartError,
@@ -313,58 +363,65 @@ function startHttpServer() {
           sessionDir: config.instagram.sessionDir,
           proxyMode: config.proxy.mode,
           targetAccounts: config.monitoring.targetAccounts,
-          tgProxyConfigured: !!process.env.TG_PROXY,
-          tgBotToken: process.env.TG_BOT_TOKEN ? '✅ set' : '❌ not set',
+          // FIX(bug13): «تنظیم شده» فقط وقتی واقعاً استفاده می‌شود
+          tgProxyConfigured: !!process.env.TG_PROXY && process.env.TG_PROXY.trim() !== 'auto',
+          tgBotToken: process.env.TG_BOT_TOKEN ? 'set' : 'not set',
           adminIds: config.app.adminIds?.length || 0,
           debugOperationsProtected: config.app.isProduction,
           feedFetchLimit: config.monitoring.feedFetchLimit,
           scheduleJitterPercent: config.antiDetect.scheduleJitterPercent,
         },
-      };
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(debugInfo, null, 2));
+      });
       return;
     }
 
-    // Manual poll test for a specific username
+    // ---------- POST /debug/poll/:username ----------
     if (url.pathname.startsWith('/debug/poll/') && req.method === 'POST') {
-      const username = url.pathname.replace('/debug/poll/', '').trim();
+      const username = url.pathname.replace('/debug/poll/', '').trim().toLowerCase();
       if (!username) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Username required: /debug/poll/{username}' }));
+        send(400, { error: 'Username required: /debug/poll/{username}' });
         return;
       }
 
-      // Set a 60-second timeout for the entire operation
-      const timeoutId = setTimeout(() => {
-        try {
-          res.writeHead(504, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Poll timed out after 60 seconds', username }));
-        } catch {}
+      // FIX(bug5): در cooldown هیچ درخواستی به اینستاگرام نمی‌فرستیم
+      if (igClient.isCoolingDown && igClient.isCoolingDown()) {
+        send(429, {
+          error: 'Instagram cooldown active',
+          retryAfterSeconds: Math.ceil(igClient.getCooldownRemainingMs() / 1000),
+        });
+        return;
+      }
+
+      // poll دستی فقط برای اکانت‌های ردیابی‌شده
+      const tracked = TrackedAccountsRepository.getByUsername(username);
+      if (!tracked) {
+        send(400, {
+          error: `@${username} is not tracked. Add it first (/add) to avoid burning rate limits.`,
+        });
+        return;
+      }
+
+      timeoutId = setTimeout(() => {
+        send(504, { error: 'Poll timed out after 60 seconds', username });
       }, 60000);
 
       try {
         log.info({ msg: 'Manual poll triggered', username });
 
-        // Step 1: Get user info
-        const userInfo = await igClient.getUserByUsername(username);
-
-        // Step 2: Get user feed
+        const userInfo = await igClient.getUserByUsername(username, { knownPk: tracked.pk || null });
         const posts = await igClient.getUserFeed(username, {
           limit: Math.max(5, Math.min(50, config.monitoring.feedFetchLimit)),
+          userPk: tracked.pk || null,
         });
 
-        // Step 3: Get user stories
         let stories = [];
         try {
-          stories = await igClient.getUserStories(username);
+          stories = await igClient.getUserStories(username, { userPk: tracked.pk || null });
         } catch (e) {
           stories = { error: e.message };
         }
 
-        clearTimeout(timeoutId);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        send(200, {
           username,
           user: userInfo,
           postsCount: posts.length,
@@ -382,29 +439,26 @@ function startHttpServer() {
           stories: Array.isArray(stories)
             ? stories.map(s => ({ pk: s.pk, type: s.subtype, takenAt: s.takenAtIso }))
             : stories,
-        }, null, 2));
+        });
       } catch (e) {
-        clearTimeout(timeoutId);
         log.error({ msg: 'Manual poll failed', username, error: e.message });
-        try {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            error: e.message,
-            stack: e.stack?.split('\n').slice(0, 5),
-            igDebug: igClient.getDebugInfo ? igClient.getDebugInfo() : null,
-          }, null, 2));
-        } catch {}
+        const status = e.name === 'InstagramCooldownError' ? 429 : 500;
+        send(status, {
+          error: e.message,
+          stack: config.app.isProduction ? undefined : e.stack?.split('\n').slice(0, 5),
+          igDebug: igClient.getDebugInfo ? igClient.getDebugInfo() : null,
+        });
       }
       return;
     }
 
-    // List tracked accounts from DB
+    // ---------- /debug/accounts ----------
     if (url.pathname === '/debug/accounts') {
       try {
         const accounts = TrackedAccountsRepository.getAll();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        send(200, {
           count: accounts.length,
+          activeCount: TrackedAccountsRepository.countActive(),
           accounts: accounts.map(a => ({
             id: a.id,
             username: a.username,
@@ -418,21 +472,19 @@ function startHttpServer() {
             errorCount: a.error_count,
             lastError: a.last_error,
           })),
-        }, null, 2));
+        });
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        send(500, { error: e.message });
       }
       return;
     }
 
-    // List recent sent items (for debugging)
+    // ---------- /debug/recent ----------
     if (url.pathname === '/debug/recent') {
       try {
         const limit = parseInt(url.searchParams.get('limit') || '20', 10);
-        const recent = SentItemsRepository.getRecent(limit);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        const recent = SentItemsRepository.getRecent(Number.isFinite(limit) ? limit : 20);
+        send(200, {
           count: recent.length,
           items: recent.map(r => ({
             id: r.id,
@@ -449,15 +501,14 @@ function startHttpServer() {
             sentAt: r.sent_at,
             caption: (r.caption || '').slice(0, 100),
           })),
-        }, null, 2));
+        });
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        send(500, { error: e.message });
       }
       return;
     }
 
-    // Retry failed items
+    // ---------- POST /debug/retry-failed ----------
     if (url.pathname === '/debug/retry-failed' && req.method === 'POST') {
       try {
         const failed = SentItemsRepository.getFailed(10, 3);
@@ -468,59 +519,53 @@ function startHttpServer() {
         }
         const enqueuedCount = await sendWorker.recoverRows(failed);
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        send(200, {
           ok: true,
           retriedCount: failed.length,
           enqueuedCount,
           message: `Marked ${failed.length} failed items and enqueued ${enqueuedCount} pending jobs`,
-        }));
+        });
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        send(500, { error: e.message });
       }
       return;
     }
 
+    // ---------- /stats (محافظت‌شده) ----------
     if (url.pathname === '/stats') {
       try {
-        const todayStats = SentItemsRepository.getTodayStats();
-        const recent = SentItemsRepository.getRecent(10);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ today: todayStats, recent }, null, 2));
+        send(200, {
+          today: SentItemsRepository.getTodayStats(),
+          recent: SentItemsRepository.getRecent(10),
+        });
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        send(500, { error: e.message });
       }
       return;
     }
 
+    // ---------- POST /refresh-proxies (محافظت‌شده) ----------
     if (url.pathname === '/refresh-proxies' && req.method === 'POST') {
       try {
         await proxyManager.refreshList();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, stats: proxyManager.getStats() }));
+        send(200, { ok: true, stats: proxyManager.getStats() });
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        send(500, { error: e.message });
       }
       return;
     }
 
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found' }));
+    send(404, { error: 'Not found' });
   });
 
   httpServer.listen(port, () => {
     log.info({ msg: 'HTTP health server listening', port });
   });
 
-  // Handle server errors
   httpServer.on('error', (e) => {
     log.error({ msg: 'HTTP server error', error: e.message });
   });
 }
-
 /**
  * Keep the process alive (waiting for signals)
  */
@@ -532,8 +577,19 @@ function startHttpServer() {
  */
 function startInstagramRetryLoop() {
   if (igRetryTimer || isShuttingDown) return;
-  const intervalMs = Math.max(60, config.antiDetect.reconnectInterval) * 1000;
-  log.info({ msg: 'Starting Instagram retry loop', intervalSeconds: intervalMs / 1000 });
+
+  // FIX(bug4): تلاش مجدد هرگز نباید کوتاه‌تر از cooldown فعال باشد،
+  // وگرنه هر بار فقط یک خطای تکراری تولید می‌کند و lastError را کثیف می‌کند
+  const baseMs = Math.max(60, config.antiDetect.reconnectInterval) * 1000;
+  const cooldownMs = igClient.getCooldownRemainingMs ? igClient.getCooldownRemainingMs() : 0;
+  const jitterMs = Math.floor(Math.random() * 30_000);
+  const intervalMs = Math.max(baseMs, cooldownMs + 15_000) + jitterMs;
+
+  log.info({
+    msg: 'Starting Instagram retry loop',
+    intervalSeconds: Math.round(intervalMs / 1000),
+    cooldownSeconds: Math.round(cooldownMs / 1000),
+  });
 
   igRetryTimer = setTimeout(async () => {
     igRetryTimer = null;
@@ -551,12 +607,15 @@ function startInstagramRetryLoop() {
         return;
       }
     } catch (e) {
-      log.warn({ msg: 'Instagram retry failed', error: e.message });
+      if (e.name === 'InstagramCooldownError') {
+        log.warn({ msg: 'Instagram retry deferred (cooldown)', error: e.message });
+      } else {
+        log.warn({ msg: 'Instagram retry failed', error: e.message });
+      }
     }
     startInstagramRetryLoop();
   }, intervalMs);
 }
-
 function startTelegramRetryLoop() {
   if (tgRetryInterval) {
     clearInterval(tgRetryInterval);

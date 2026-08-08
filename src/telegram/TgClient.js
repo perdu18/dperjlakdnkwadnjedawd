@@ -23,6 +23,7 @@ import config from '../config/env.js';
 import proxyManager from '../proxy/ProxyManager.js';   // FIX: استفاده می‌شد ولی import نشده بود
 import { tgLogger as log } from '../utils/Logger.js';
 import { retryTgRequest } from '../utils/Retry.js';
+import { htmlToMessage } from './HtmlEntities.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -89,7 +90,7 @@ class TgClient {
         connectionRetries: 10,
         retryDelay: 2000,
         autoReconnect: true,
-        floodSleepThreshold: 60,   // auto-wait on flood waits up to 60s
+        floodSleepThreshold: 300, // FIX(bug11): FLOOD_WAIT ارسال به کانال معمولاً > 60s است
         deviceModel: 'IG Monitor Bot',
         systemVersion: '1.0.0',
         appVersion: '1.0.0',
@@ -492,32 +493,39 @@ async resolveChannel() {
  * FIX: طبق core.telegram.org سقف متن پیام 4096 کاراکتر UTF-16 است.
  * قبلاً پست بدون مدیا با کپشن بلند MESSAGE_TOO_LONG می‌گرفت و job fail می‌شد.
  */
+/**
+ * FIX(bug9/bug10): پیام‌ها با MessageEntity واقعی MTProto ارسال می‌شوند
+ * (blockquote expandable => MessageEntityBlockquote{collapsed:true})
+ * و سقف 4096 روی UTF-16 code unit اعمال می‌شود.
+ */
 async sendMessage(text, options = {}) {
   const entity = await this.resolveChannel();
+  const { replyTo, linkPreview, parseMode: _ignored, ...rest } = options;
   const chunks = this._splitMessage(String(text ?? ''), 4096);
   const sent = [];
-  let replyTo = options.replyTo;
+  let replyTarget = replyTo;
 
   for (const chunk of chunks) {
+    const { text: message, entities } = htmlToMessage(chunk, { maxLength: 4096 });
     try {
       const result = await this.client.sendMessage(entity, {
-        message: chunk,
-        parseMode: 'html',
-        linkPreview: options.linkPreview ?? false,
-        ...options,
-        ...(replyTo ? { replyTo } : {}),
+        message,
+        formattingEntities: entities,
+        linkPreview: linkPreview ?? false,
+        ...rest,
+        ...(replyTarget ? { replyTo: replyTarget } : {}),
       });
       const info = {
         id: result.id,
         chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
       };
       sent.push(info);
-      if (!options.replyTo) replyTo = info.id; // بقیه تکه‌ها به تکه‌ی اول reply شوند
+      if (!replyTo) replyTarget = info.id;
     } catch (e) {
       log.error({
         msg: 'sendMessage failed',
         error: e.message, errorMessage: e.errorMessage,
-        textLength: chunk?.length, textPreview: chunk?.slice(0, 100),
+        textLength: message.length, textPreview: message.slice(0, 100),
       });
       throw e;
     }
@@ -545,148 +553,197 @@ _splitMessage(text, maxLength = 4096) {
   /**
    * Send a file (photo/video/document)
    */
-  async sendFile(filePath, options = {}) {
-    const entity = await this.resolveChannel();
+async sendFile(filePath, options = {}) {
+  const entity = await this.resolveChannel();
+  const { caption = '', parseMode: _ignored, ...rest } = options;
 
-    const sendOptions = {
-      parseMode: 'html',
-      caption: options.caption || '',
-      ...options,
-    };
+  // FIX(bug10): سقف کپشن رسانه 1024 UTF-16 code unit است
+  const { text: captionText, entities } = htmlToMessage(caption, { maxLength: 1024 });
 
-    // Determine if photo or document
-    if (options.asPhoto) {
-      sendOptions.forceDocument = false;
-    } else if (options.asDocument) {
-      sendOptions.forceDocument = true;
-    }
+  const sendOptions = {
+    caption: captionText,
+    formattingEntities: entities,
+    ...rest,
+  };
 
-    if (options.spoiler) {
-      sendOptions.spoiler = true;
-    }
+  if (options.asPhoto) sendOptions.forceDocument = false;
+  else if (options.asDocument) sendOptions.forceDocument = true;
 
-    if (options.ttl) {
-      sendOptions.ttl = options.ttl;
-    }
+  if (options.spoiler) sendOptions.spoiler = true;
+  if (options.ttl) sendOptions.ttl = options.ttl;
 
-    const result = await this.client.sendFile(entity, {
-      file: filePath,
-      ...sendOptions,
-    });
+  delete sendOptions.asPhoto;
+  delete sendOptions.asDocument;
 
-    return {
-      id: result.id,
-      chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
-    };
-  }
+  const result = await this.client.sendFile(entity, {
+    file: filePath,
+    ...sendOptions,
+  });
 
+  return {
+    id: result.id,
+    chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
+  };
+}
   /**
    * Send grouped media using Telegram's messages.sendMultiMedia flow.
    * Telegram allows 2-10 items per album, so oversized carousels are split
    * without creating a one-item trailing batch.
    */
-  async sendAlbum(filePaths, options = {}) {
-    const entity = await this.resolveChannel();
+/**
+ * FIX(bug12): طبق مستندات، یک media group باید همگن باشد (همه photo/video
+ * یا همه document). آیتم‌هایی که نوعشان قابل ارسال به‌عنوان photo/video نیست
+ * جدا و به‌صورت document ارسال می‌شوند تا کل آلبوم MEDIA_INVALID نگیرد.
+ * FIX(bug9/10): کپشن به‌صورت متن ساده + entity واقعی MTProto می‌رود.
+ */
+async sendAlbum(filePaths, options = {}) {
+  const entity = await this.resolveChannel();
 
-    if (!Array.isArray(filePaths) || filePaths.length < 2) {
-      throw new Error('An album requires at least 2 files');
+  if (!Array.isArray(filePaths) || filePaths.length < 2) {
+    throw new Error('An album requires at least 2 files');
+  }
+
+  const { caption = '', replyTo = undefined, parseMode: _ignored, ...extraOptions } = options;
+  const { text: captionText, entities: captionEntities } =
+    htmlToMessage(caption, { maxLength: 1024 });
+
+  const MEDIA_EXT = /\.(jpe?g|png|webp|heic|mp4|mov|m4v|gif)$/i;
+  const groupable = filePaths.filter(p => MEDIA_EXT.test(String(p)));
+  const documents = filePaths.filter(p => !MEDIA_EXT.test(String(p)));
+
+  if (documents.length > 0) {
+    log.warn({
+      msg: 'Non-groupable media detected; sending separately as documents',
+      count: documents.length,
+    });
+  }
+
+  const results = [];
+  let firstMessageId = null;
+
+  const pushMessages = (result) => {
+    const messages = Array.isArray(result) ? result : [result];
+    for (const message of messages) {
+      if (!message) continue;
+      results.push({
+        id: message.id,
+        chatId: message.chatId?.toString?.() || message.peerId?.toString?.() || null,
+      });
     }
+    if (!firstMessageId) firstMessageId = results[0]?.id;
+  };
 
-    const { caption = '', replyTo = undefined, ...extraOptions } = options;
-    const batches = [];
-    let offset = 0;
+  // ساخت batch های ۲..۱۰ تایی بدون batch یک‌آیتمی در انتها
+  const batches = [];
+  let offset = 0;
+  while (groupable.length - offset > 10) {
+    const remaining = groupable.length - offset;
+    const batchSize = remaining === 11 ? 9 : 10;
+    batches.push(groupable.slice(offset, offset + batchSize));
+    offset += batchSize;
+  }
+  if (groupable.length - offset > 0) batches.push(groupable.slice(offset));
 
-    while (filePaths.length - offset > 10) {
-      const remaining = filePaths.length - offset;
-      const batchSize = remaining === 11 ? 9 : 10;
-      batches.push(filePaths.slice(offset, offset + batchSize));
-      offset += batchSize;
-    }
-    batches.push(filePaths.slice(offset));
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    const replyTarget = batchIndex === 0 ? replyTo : firstMessageId;
 
-    const results = [];
-    let firstMessageId = null;
-
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      if (batch.length < 2 || batch.length > 10) {
-        throw new Error(`Invalid Telegram album batch size: ${batch.length}`);
-      }
-
-      const captions = batch.map((_, itemIndex) =>
-        batchIndex === 0 && itemIndex === 0 ? caption : '');
-      const replyTarget = batchIndex === 0 ? replyTo : firstMessageId;
-      // Retry only the current batch. Retrying the whole carousel after a later
-      // batch fails would duplicate every batch already published.
+    // batch یک‌آیتمی معتبرِ آلبوم نیست -> تک‌فایل ارسال می‌شود
+    if (batch.length === 1) {
+      const isFirst = batchIndex === 0;
       const result = await retryTgRequest(() => this.client.sendFile(entity, {
         ...extraOptions,
-        file: batch,
-        caption: captions,
-        parseMode: 'html',
+        file: batch[0],
+        caption: isFirst ? captionText : '',
+        formattingEntities: isFirst ? captionEntities : [],
         forceDocument: false,
         supportsStreaming: true,
         ...(replyTarget ? { replyTo: replyTarget } : {}),
       }));
-
-      const messages = Array.isArray(result) ? result : [result];
-      for (const message of messages) {
-        if (!message) continue;
-        results.push({
-          id: message.id,
-          chatId: message.chatId?.toString?.() || message.peerId?.toString?.() || null,
-        });
-      }
-
-      if (!firstMessageId) {
-        firstMessageId = results[0]?.id;
-      }
+      pushMessages(result);
+      continue;
     }
 
-    if (results.length === 0) {
-      throw new Error('Telegram returned no messages for album');
+    if (batch.length > 10) {
+      throw new Error(`Invalid Telegram album batch size: ${batch.length}`);
     }
 
-    return results;
+    const captions = batch.map((_, itemIndex) =>
+      batchIndex === 0 && itemIndex === 0 ? captionText : '');
+
+    // Retry فقط روی همین batch (تکرار کل carousel = پیام تکراری)
+    const result = await retryTgRequest(() => this.client.sendFile(entity, {
+      ...extraOptions,
+      file: batch,
+      caption: captions,
+      formattingEntities: batchIndex === 0 ? captionEntities : [],
+      forceDocument: false,
+      supportsStreaming: true,
+      ...(replyTarget ? { replyTo: replyTarget } : {}),
+    }));
+    pushMessages(result);
   }
 
+  // آیتم‌های غیرهمگن، جدا و به‌عنوان document
+  for (const documentPath of documents) {
+    try {
+      const result = await retryTgRequest(() => this.client.sendFile(entity, {
+        ...extraOptions,
+        file: documentPath,
+        forceDocument: true,
+        caption: '',
+        ...(firstMessageId ? { replyTo: firstMessageId } : {}),
+      }));
+      pushMessages(result);
+    } catch (e) {
+      log.error({ msg: 'Non-groupable item failed', file: documentPath, error: e.message });
+    }
+  }
+
+  if (results.length === 0) {
+    throw new Error('Telegram returned no messages for album');
+  }
+
+  return results;
+}
   /**
    * Send UTF-8 text as a document, optionally replying to another message.
    */
-  async sendTextFile(content, options = {}) {
-    const entity = await this.resolveChannel();
-    const buffer = Buffer.from(String(content ?? ''), 'utf8');
-    buffer.name = options.filename || 'instagram-caption.txt';
+async sendTextFile(content, options = {}) {
+  const entity = await this.resolveChannel();
+  const buffer = Buffer.from(String(content ?? ''), 'utf8');
+  buffer.name = options.filename || 'instagram-caption.txt';
 
-    const result = await this.client.sendFile(entity, {
-      file: buffer,
-      forceDocument: true,
-      caption: options.caption || '',
-      parseMode: 'html',
-      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+  const { text: captionText, entities } =
+    htmlToMessage(options.caption || '', { maxLength: 1024 });
+
+  const result = await this.client.sendFile(entity, {
+    file: buffer,
+    forceDocument: true,
+    caption: captionText,
+    formattingEntities: entities,
+    ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+  });
+
+  return {
+    id: result.id,
+    chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
+  };
+}
+
+async sendAlert(text) {
+  if (!config.telegram.alertChatId) return;
+
+  try {
+    const { text: message, entities } = htmlToMessage(String(text ?? ''), { maxLength: 4096 });
+    await this.client.sendMessage(config.telegram.alertChatId, {
+      message,
+      formattingEntities: entities,
     });
-
-    return {
-      id: result.id,
-      chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
-    };
+  } catch (e) {
+    log.warn({ msg: 'Could not send alert', error: e.message });
   }
-
-  /**
-   * Send alert to alert chat (for errors)
-   */
-  async sendAlert(text) {
-    if (!config.telegram.alertChatId) return;
-
-    try {
-      await this.client.sendMessage(config.telegram.alertChatId, {
-        message: `🚨 <b>Alert</b>\n\n${text}`,
-        parseMode: 'html',
-      });
-    } catch (e) {
-      log.warn({ msg: 'Could not send alert', error: e.message });
-    }
-  }
-
+}
   /**
    * Disconnect
    */
@@ -715,54 +772,66 @@ _splitMessage(text, maxLength = 4096) {
   /**
    * Get debug info for /debug endpoint
    */
-  getDebugInfo() {
-    let sessionFileInfo = null;
-    if (this.sessionFilePath && existsSync(this.sessionFilePath)) {
-      try {
-        const stats = statSync(this.sessionFilePath);
-        sessionFileInfo = {
-          path: this.sessionFilePath,
-          exists: true,
-          size: stats.size,
-          modifiedAt: stats.mtime.toISOString(),
-        };
-      } catch (e) {
-        sessionFileInfo = { path: this.sessionFilePath, exists: true, error: e.message };
-      }
-    } else {
-      sessionFileInfo = { path: this.sessionFilePath, exists: false };
+getDebugInfo() {
+  let sessionFileInfo = null;
+  if (this.sessionFilePath && existsSync(this.sessionFilePath)) {
+    try {
+      const stats = statSync(this.sessionFilePath);
+      sessionFileInfo = {
+        path: this.sessionFilePath,
+        exists: true,
+        size: stats.size,
+        modifiedAt: stats.mtime.toISOString(),
+      };
+    } catch (e) {
+      sessionFileInfo = { path: this.sessionFilePath, exists: true, error: e.message };
     }
-
-    return {
-      isConnected: this.isConnected,
-      hasSession: !!this.sessionString,
-      sessionFile: sessionFileInfo,
-      hasClient: !!this.client,
-      me: this.me ? {
-        id: this.me.id?.toString(),
-        username: this.me.username,
-        firstName: this.me.firstName,
-        phone: this.me.phone,
-      } : null,
-      proxy: {
-        tgProxy: process.env.TG_PROXY || 'none',
-        isAuto: (process.env.TG_PROXY || '') === 'auto',
-        autoFoundProxy: this._autoFoundProxy ? {
-          host: this._autoFoundProxy.proxy.host,
-          port: this._autoFoundProxy.proxy.port,
-          responseTime: this._autoFoundProxy.responseTime,
-        } : null,
-        stickyProxy: this.stickyProxy ? {
-          host: this.stickyProxy.host,
-          port: this.stickyProxy.port,
-          type: this.stickyProxy.type,
-        } : null,
-      },
-      lastError: this.lastError,
-      lastErrorAt: this.lastErrorAt,
-      connectionAttempts: this.connectionAttempts,
-    };
+  } else {
+    sessionFileInfo = { path: this.sessionFilePath, exists: false };
   }
+
+  const tgProxyRaw = (process.env.TG_PROXY || '').trim();
+  const isAuto = tgProxyRaw === 'auto';
+  const usingProxy = !!this._autoFoundProxy || !!this.stickyProxy;
+
+  // FIX(bug13): گزارش درست منبع سشن + پروکسی مؤثر + ماسک شماره تلفن
+  const sessionSource = sessionFileInfo.exists
+    ? 'file'
+    : (process.env.TG_SESSION_STRING ? 'environment' : 'none');
+
+  const maskPhone = (phone) => {
+    if (!phone) return null;
+    const s = String(phone);
+    return s.length <= 4 ? '****' : `${'*'.repeat(s.length - 4)}${s.slice(-4)}`;
+  };
+
+  return {
+    isConnected: this.isConnected,
+    hasSession: !!this.sessionString,
+    sessionSource,
+    sessionFile: sessionFileInfo,
+    hasClient: !!this.client,
+    me: this.me ? {
+      id: this.me.id?.toString(),
+      username: this.me.username,
+      firstName: this.me.firstName,
+      phone: maskPhone(this.me.phone),
+    } : null,
+    proxy: {
+      tgProxy: tgProxyRaw ? (isAuto ? 'auto' : 'configured') : 'none',
+      isAuto,
+      // با WSS، حالت auto عملاً skip می‌شود؛ گزارش قبلی گمراه‌کننده بود
+      effectiveProxy: usingProxy
+        ? (this._autoFoundProxy
+          ? `${this._autoFoundProxy.proxy?.host}:${this._autoFoundProxy.proxy?.port}`
+          : `${this.stickyProxy.host}:${this.stickyProxy.port}`)
+        : 'none (WSS direct)',
+      transport: 'WSS (PromisedWebSockets)',
+    },
+    lastError: this.lastError,
+    lastErrorAt: this.lastErrorAt,
+    connectionAttempts: this.connectionAttempts,
+  };
 }
 
 const tgClient = new TgClient();
