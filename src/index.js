@@ -134,6 +134,9 @@ async function initServices() {
 
       if (connected) {
         log.info('✓ Telegram MTProto connected');
+        if (igClient.isLoggedIn) {
+          await sendWorker.recoverPending(1000, { recoverInterrupted: true });
+        }
         // پیام راه‌اندازی فقط توسط BotManager ارسال میشه (نه اینجا)
       } else {
         log.warn({ msg: 'Telegram MTProto not connected', error: tgClient.lastError });
@@ -235,6 +238,21 @@ function startHttpServer() {
   httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${port}`);
 
+    // Diagnostics expose operational data and some routes trigger Instagram
+    // requests. Require a production secret for the entire debug namespace.
+    if (url.pathname === '/debug' || url.pathname.startsWith('/debug/')) {
+      const authorization = req.headers.authorization || '';
+      const providedToken = authorization.startsWith('Bearer ')
+        ? authorization.slice(7)
+        : req.headers['x-debug-token'];
+      const expectedToken = config.app.debugApiToken;
+      if (config.app.isProduction && (!expectedToken || providedToken !== expectedToken)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Debug operation is disabled or unauthorized' }));
+        return;
+      }
+    }
+
     // Always return 200 on / and /health (so Railway healthcheck passes)
     if (url.pathname === '/health' || url.pathname === '/') {
       const stats = {
@@ -288,9 +306,12 @@ function startHttpServer() {
           sessionDir: config.instagram.sessionDir,
           proxyMode: config.proxy.mode,
           targetAccounts: config.monitoring.targetAccounts,
-          tgProxy: process.env.TG_PROXY || 'none',
+          tgProxyConfigured: !!process.env.TG_PROXY,
           tgBotToken: process.env.TG_BOT_TOKEN ? '✅ set' : '❌ not set',
           adminIds: config.app.adminIds?.length || 0,
+          debugOperationsProtected: config.app.isProduction,
+          feedFetchLimit: config.monitoring.feedFetchLimit,
+          scheduleJitterPercent: config.antiDetect.scheduleJitterPercent,
         },
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -322,7 +343,9 @@ function startHttpServer() {
         const userInfo = await igClient.getUserByUsername(username);
 
         // Step 2: Get user feed
-        const posts = await igClient.getUserFeed(username, { limit: 5 });
+        const posts = await igClient.getUserFeed(username, {
+          limit: Math.max(5, Math.min(50, config.monitoring.feedFetchLimit)),
+        });
 
         // Step 3: Get user stories
         let stories = [];
@@ -346,6 +369,7 @@ function startHttpServer() {
             caption: (p.caption || '').slice(0, 100),
             takenAt: p.takenAtIso,
             mediaUrls: p.mediaUrls?.length || 0,
+            source: p.source || 'unknown',
           })),
           storiesCount: Array.isArray(stories) ? stories.length : 0,
           stories: Array.isArray(stories)
@@ -433,15 +457,16 @@ function startHttpServer() {
         log.info({ msg: 'Retrying failed items', count: failed.length });
 
         for (const item of failed) {
-          // Mark as pending so SendWorker can pick it up
           SentItemsRepository.updateStatus(item.id, 'pending');
         }
+        const enqueuedCount = await sendWorker.recoverRows(failed);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           ok: true,
           retriedCount: failed.length,
-          message: `Marked ${failed.length} failed items as pending`,
+          enqueuedCount,
+          message: `Marked ${failed.length} failed items and enqueued ${enqueuedCount} pending jobs`,
         }));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -523,6 +548,9 @@ function startTelegramRetryLoop() {
 
       if (connected) {
         log.info('✓ Telegram connected on retry!');
+        if (igClient.isLoggedIn) {
+          await sendWorker.recoverPending(1000, { recoverInterrupted: true });
+        }
         clearInterval(tgRetryInterval);
         tgRetryInterval = null;
 

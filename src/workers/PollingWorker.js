@@ -3,26 +3,26 @@
  * Worker اصلی: چک دوره‌ای اکانت‌ها برای پست و استوری جدید
  */
 
-import cron from 'node-cron';
+
 import { Mutex } from 'async-mutex';
 
 import config from '../config/env.js';
 import { workerLogger as log } from '../utils/Logger.js';
-import { sleep, randomDelay, containsKeyword, extractHashtags } from '../utils/Helpers.js';
+import { randomDelay, containsKeyword, extractHashtags } from '../utils/Helpers.js';
 import { logEvent, incrementDailyStat } from '../database/db.js';
 import TrackedAccountsRepository from '../database/TrackedAccountsRepository.js';
 import SentItemsRepository from '../database/SentItemsRepository.js';
 import igClient from '../instagram/IgClient.js';
-import mediaDownloader from '../instagram/MediaDownloader.js';
-import channelSender from '../telegram/ChannelSender.js';
+
 import sendWorker from './SendWorker.js';
 
 class PollingWorker {
   constructor() {
     this.postMutex = new Mutex();
     this.storyMutex = new Mutex();
-    this.postCronTask = null;
-    this.storyCronTask = null;
+    this.postTimer = null;
+    this.storyTimer = null;
+    this.isRunning = false;
     this.isPollingPosts = false;
     this.isPollingStories = false;
   }
@@ -31,54 +31,55 @@ class PollingWorker {
    * Start the polling workers
    */
   start() {
-    // Posts polling
-    const postIntervalSec = config.monitoring.pollIntervalPosts;
-    const postCronExpr = this._secondsToCron(postIntervalSec);
-    log.info({ msg: 'Starting post polling', interval: `${postIntervalSec}s`, cron: postCronExpr });
+    if (this.isRunning) return;
+    this.isRunning = true;
 
-    this.postCronTask = cron.schedule(postCronExpr, async () => {
-      if (this.isPollingPosts) {
-        log.debug('Post polling already running, skipping');
-        return;
-      }
-      await this.pollPosts();
+    log.info({
+      msg: 'Starting jittered monitoring loops',
+      postInterval: `${config.monitoring.pollIntervalPosts}s`,
+      storyInterval: `${config.monitoring.pollIntervalStories}s`,
+      jitterPercent: config.antiDetect.scheduleJitterPercent,
     });
 
-    // Stories polling
-    const storyIntervalSec = config.monitoring.pollIntervalStories;
-    const storyCronExpr = this._secondsToCron(storyIntervalSec);
-    log.info({ msg: 'Starting story polling', interval: `${storyIntervalSec}s`, cron: storyCronExpr });
-
-    this.storyCronTask = cron.schedule(storyCronExpr, async () => {
-      if (this.isPollingStories) {
-        log.debug('Story polling already running, skipping');
-        return;
-      }
-      await this.pollStories();
-    });
-
-    // Initial run after 5 seconds
-    setTimeout(async () => {
-      log.info('Running initial poll...');
-      await this.pollPosts();
-      await sleep(2000);
-      await this.pollStories();
-    }, 5000);
+    this._schedulePoll('posts', 5000);
+    this._schedulePoll('stories', 9000);
   }
 
   /**
    * Stop polling
    */
   stop() {
-    if (this.postCronTask) {
-      this.postCronTask.stop();
-      this.postCronTask = null;
-    }
-    if (this.storyCronTask) {
-      this.storyCronTask.stop();
-      this.storyCronTask = null;
-    }
+    this.isRunning = false;
+    if (this.postTimer) clearTimeout(this.postTimer);
+    if (this.storyTimer) clearTimeout(this.storyTimer);
+    this.postTimer = null;
+    this.storyTimer = null;
     log.info('Polling workers stopped');
+  }
+
+  _schedulePoll(kind, delayMs = null) {
+    if (!this.isRunning) return;
+    const isPosts = kind === 'posts';
+    const intervalSeconds = isPosts
+      ? config.monitoring.pollIntervalPosts
+      : config.monitoring.pollIntervalStories;
+    const jitter = Math.max(0, Math.min(50, config.antiDetect.scheduleJitterPercent));
+    const factor = 1 + ((Math.random() * 2 - 1) * jitter / 100);
+    const nextDelay = delayMs ?? Math.max(15_000, Math.round(intervalSeconds * 1000 * factor));
+
+    const timer = setTimeout(async () => {
+      try {
+        if (isPosts) await this.pollPosts();
+        else await this.pollStories();
+      } catch (e) {
+        log.error({ msg: `Scheduled ${kind} poll failed`, error: e.message });
+      } finally {
+        this._schedulePoll(kind);
+      }
+    }, nextDelay);
+
+    if (isPosts) this.postTimer = timer;
+    else this.storyTimer = timer;
   }
 
   /**
@@ -200,7 +201,10 @@ class PollingWorker {
     // Fetch recent posts - استفاده از username به‌جای pk چون API جدید username می‌خواد
     let recentPosts;
     try {
-      recentPosts = await igClient.getUserFeed(account.username, { limit: 5 });
+      recentPosts = await igClient.getUserFeed(account.username, {
+        limit: Math.max(5, Math.min(50, config.monitoring.feedFetchLimit)),
+        afterPk: account.last_post_pk,
+      });
     } catch (e) {
       log.error({ msg: 'Failed to fetch feed', username: account.username, error: e.message });
       TrackedAccountsRepository.recordError(account.username, `getUserFeed: ${e.message}`);
@@ -227,9 +231,23 @@ class PollingWorker {
     const canonicalLastSeenPk = String(lastSeenPk || '').split('_')[0];
     for (const post of recentPosts) {
       const canonicalPostPk = String(post.pk || '').split('_')[0];
-      if (canonicalLastSeenPk && canonicalPostPk === canonicalLastSeenPk) break;
+      if (canonicalLastSeenPk && canonicalPostPk === canonicalLastSeenPk) {
+        const mediaType = post.isReel ? 'reel' : 'post';
+        const ledgerEntry = SentItemsRepository.exists(account.id, post.pk, mediaType);
+        if (!ledgerEntry) {
+          newPosts.push(post);
+          log.warn({
+            msg: 'Watermark has no durable send record; recovering missed post',
+            username: account.username,
+            postPk: post.pk,
+          });
+        }
+        break;
+      }
       newPosts.push(post);
     }
+
+    await this._recoverRetryablePosts(account, recentPosts);
 
     log.info({
       msg: 'New posts analysis',
@@ -242,16 +260,16 @@ class PollingWorker {
 
     if (newPosts.length === 0) {
       log.debug({ msg: 'No new posts', username: account.username });
+      TrackedAccountsRepository.resetErrors(account.username);
       return;
     }
 
     log.info({ msg: 'New posts detected', username: account.username, count: newPosts.length });
 
-    // Update last seen post PK (newest first)
     const newestPk = recentPosts[0].pk;
-    TrackedAccountsRepository.updateLastPost(account.username, newestPk);
 
-    // Filter and enqueue
+    // Filter and enqueue. Advance the high-watermark only after every item has
+    // been durably inserted, so a crash cannot permanently skip a post.
     for (const post of newPosts.reverse()) {  // Send oldest first
       const filterResult = this._shouldSendPost(post);
       const mediaType = post.isReel ? 'reel' : 'post';
@@ -309,7 +327,33 @@ class PollingWorker {
       });
     }
 
+    TrackedAccountsRepository.updateLastPost(account.username, newestPk);
     TrackedAccountsRepository.resetErrors(account.username);
+  }
+
+  async _recoverRetryablePosts(account, posts) {
+    for (const post of posts) {
+      const mediaType = post.isReel ? 'reel' : 'post';
+      const existing = SentItemsRepository.exists(account.id, post.pk, mediaType);
+      if (!existing || !['pending', 'failed'].includes(existing.status)) continue;
+      if (existing.status === 'failed' && existing.retry_count >= 3) continue;
+
+      if (existing.status === 'failed') {
+        SentItemsRepository.updateStatus(existing.id, 'pending');
+      }
+      await sendWorker.enqueue({
+        sentItemId: existing.id,
+        type: mediaType,
+        account,
+        item: post,
+      });
+      log.info({
+        msg: 'Recovered unsent post from recent feed',
+        username: account.username,
+        postPk: post.pk,
+        previousStatus: existing.status,
+      });
+    }
   }
 
   /**
@@ -345,26 +389,46 @@ class PollingWorker {
     const newStories = [];
 
     for (const story of stories) {
-      if (story.pk === lastSeenPk) break;
+      if (story.pk === lastSeenPk) {
+        const ledgerEntry = SentItemsRepository.exists(account.id, story.pk, 'story');
+        if (!ledgerEntry) {
+          newStories.push(story);
+          log.warn({
+            msg: 'Story watermark has no durable record; recovering missed story',
+            username: account.username,
+            storyPk: story.pk,
+          });
+        }
+        break;
+      }
       newStories.push(story);
     }
 
     if (newStories.length === 0) {
       log.debug({ msg: 'No new stories', username: account.username });
+      TrackedAccountsRepository.resetErrors(account.username);
       return;
     }
 
     log.info({ msg: 'New stories detected', username: account.username, count: newStories.length });
 
-    // Update last seen (newest first)
     const newestPk = stories[0].pk;
-    TrackedAccountsRepository.updateLastStory(account.username, newestPk);
 
-    // Enqueue (oldest first)
+    // Enqueue oldest first, then advance the durable high-watermark.
     for (const story of newStories.reverse()) {
       const exists = SentItemsRepository.exists(account.id, story.pk, 'story');
       if (exists) {
-        log.debug({ msg: 'Story already in DB', storyPk: story.pk });
+        if (['pending', 'failed'].includes(exists.status) && exists.retry_count < 3) {
+          if (exists.status === 'failed') SentItemsRepository.updateStatus(exists.id, 'pending');
+          await sendWorker.enqueue({
+            sentItemId: exists.id,
+            type: 'story',
+            account,
+            item: story,
+          });
+        } else {
+          log.debug({ msg: 'Story already in DB', storyPk: story.pk, status: exists.status });
+        }
         continue;
       }
 
@@ -378,6 +442,8 @@ class PollingWorker {
         mediaUrls: [story.mediaUrl],
       });
 
+      if (created.changes === 0) continue;
+
       await sendWorker.enqueue({
         sentItemId: created.lastInsertRowid,
         type: 'story',
@@ -386,6 +452,7 @@ class PollingWorker {
       });
     }
 
+    TrackedAccountsRepository.updateLastStory(account.username, newestPk);
     TrackedAccountsRepository.resetErrors(account.username);
   }
 
@@ -419,21 +486,7 @@ class PollingWorker {
     return { pass: true };
   }
 
-  /**
-   * Convert seconds to cron expression
-   * Supports: 30s, 60s, 90s, 120s, 300s, 600s, etc.
-   */
-  _secondsToCron(seconds) {
-    if (seconds < 60) {
-      return `*/${seconds} * * * * *`;  // Every N seconds
-    }
-    if (seconds < 3600) {
-      const minutes = Math.floor(seconds / 60);
-      return `*/${minutes} * * * *`;
-    }
-    const hours = Math.floor(seconds / 3600);
-    return `0 */${hours} * * *`;
-  }
+
 }
 
 const pollingWorker = new PollingWorker();

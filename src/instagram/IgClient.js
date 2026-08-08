@@ -1,11 +1,11 @@
 /**
  * instagram/IgClient.js
- * Wrapper برای Instagram Web API — فقط با GraphQL + axios (بدون Playwright)
+ * Instagram web/private API client with browser-created session cookies.
  *
- * این نسخه از Playwright استفاده نمی‌کنه چون:
- *   - Playwright Chromium روی Railway crash می‌کنه (کمبود حافظه)
- *   - GraphQL API با cookies سریع‌تر و قابل اتکاتر هست
- *   - نیازی به مرورگر نداریم — فقط HTTP requests با cookies
+ * Production polling intentionally uses paced HTTP requests: keeping Chromium
+ * alive on Railway consumes substantially more memory and browser automation
+ * increases challenge risk. Playwright remains the interactive session setup
+ * and recovery mechanism.
  *
  * Session: فایل JSON حاوی cookies که توسط scripts/setup-instagram.js ساخته میشه.
  */
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 
 import config from '../config/env.js';
 import { igLogger as log } from '../utils/Logger.js';
-import { randomDelay } from '../utils/Helpers.js';
+import { sleep } from '../utils/Helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -41,11 +41,16 @@ class IgClient {
     this.lastError = null;
     this.lastErrorAt = null;
     this.axiosInstance = null;
+    this._requestGate = Promise.resolve();
+    this._nextRequestAt = 0;
+    this._cooldownUntil = 0;
+    this._cooldownReason = null;
+    this._profileCache = new Map();
   }
 
   init() {
     this._setupSessionPath();
-    log.info({ msg: 'Instagram client initialized (GraphQL API, no Playwright)', username: config.instagram.username });
+    log.info({ msg: 'Instagram client initialized (web-profile-first HTTP polling)', username: config.instagram.username });
   }
 
   _setupSessionPath() {
@@ -66,11 +71,10 @@ class IgClient {
         log.info('Session verified, login successful');
         return;
       }
-      this.lastError = 'Session verification failed';
+      this.lastError = 'Instagram session verification failed';
       this.lastErrorAt = new Date().toISOString();
-      log.warn({ msg: 'Session may be invalid', error: this.lastError });
-      this.isLoggedIn = true;
-      return;
+      this.isLoggedIn = false;
+      throw new Error('Instagram session is invalid or expired. Run: npm run setup:instagram');
     }
 
     this.lastError = `Session file not found at: ${this.sessionFilePath}`;
@@ -146,11 +150,13 @@ class IgClient {
     const cookieStr = Object.entries(this.session.cookies)
       .map(([k, v]) => `${k}=${v}`)
       .join('; ');
+    const agent = this._buildStaticProxyAgent();
 
     this.axiosInstance = axios.create({
       timeout: 20000,
       maxRedirects: 0,
       validateStatus: (status) => status < 500,
+      ...(agent ? { httpsAgent: agent, proxy: false } : {}),
       headers: {
         'User-Agent': this.session.userAgent || BROWSER_UA,
         'Accept': '*/*',
@@ -163,8 +169,86 @@ class IgClient {
         'Sec-Fetch-Site': 'same-origin',
         'X-Requested-With': 'XMLHttpRequest',
         'X-ASBD-ID': '198477',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
       },
     });
+
+    this.axiosInstance.interceptors.request.use(async request => {
+      await this._paceRequest();
+      return request;
+    });
+    this.axiosInstance.interceptors.response.use(
+      response => {
+        this._applySafetyCooldown(response.status, response.data);
+        return response;
+      },
+      error => {
+        this._applySafetyCooldown(error.response?.status, error.response?.data);
+        throw error;
+      }
+    );
+  }
+
+  _buildStaticProxyAgent() {
+    if (config.proxy.mode !== 'static' || !config.proxy.staticUrl) return null;
+    try {
+      const url = new URL(config.proxy.staticUrl);
+      const isSocks = url.protocol === 'socks5:' || url.protocol === 'socks4:';
+      this.stickyProxy = {
+        protocol: url.protocol.replace(':', ''),
+        host: url.hostname,
+        port: url.port || null,
+      };
+      return isSocks
+        ? new SocksProxyAgent(config.proxy.staticUrl)
+        : new HttpsProxyAgent(config.proxy.staticUrl);
+    } catch (e) {
+      log.warn({ msg: 'Invalid static Instagram proxy; using direct connection', error: e.message });
+      return null;
+    }
+  }
+
+  async _paceRequest() {
+    const gate = this._requestGate.then(async () => {
+      const waitUntil = Math.max(this._nextRequestAt, this._cooldownUntil);
+      const waitMs = Math.max(0, waitUntil - Date.now());
+      if (waitMs > 0) {
+        log.debug({
+          msg: 'Pacing Instagram request',
+          waitMs,
+          cooldownReason: this._cooldownReason,
+        });
+        await sleep(waitMs);
+      }
+
+      const min = Math.max(500, config.antiDetect.requestDelayMin);
+      const max = Math.max(min, config.antiDetect.requestDelayMax);
+      this._nextRequestAt = Date.now() + min + Math.floor(Math.random() * (max - min + 1));
+      if (this._cooldownUntil <= Date.now()) this._cooldownReason = null;
+    });
+    this._requestGate = gate.catch(() => {});
+    await gate;
+  }
+
+  _applySafetyCooldown(status, data) {
+    const message = String(data?.message || data?.error_type || '').toLowerCase();
+    let seconds = 0;
+    let reason = null;
+
+    if (status === 429 || message.includes('feedback_required') || message.includes('spam')) {
+      seconds = config.antiDetect.rateLimitCooldown;
+      reason = status === 429 ? 'HTTP 429' : message;
+    } else if (message.includes('challenge_required') || message.includes('checkpoint_required')) {
+      seconds = config.antiDetect.challengeCooldown;
+      reason = message;
+    }
+
+    if (seconds > 0) {
+      this._cooldownUntil = Math.max(this._cooldownUntil, Date.now() + seconds * 1000);
+      this._cooldownReason = reason;
+      log.warn({ msg: 'Instagram safety cooldown activated', reason, seconds });
+    }
   }
 
   async _verifySession() {
@@ -177,16 +261,17 @@ class IgClient {
 
     try {
       const res = await this.axiosInstance.get(`${IG_API}/web/accounts/current_user/?include_dummy=true`);
+      this._assertApiResponse(res, 'Instagram session verification');
       if (res.data?.viewer?.is_logged_in === true) {
         this.currentUser = res.data.viewer;
         log.info({ msg: 'Session verified via API', userId: this.currentUser.id });
         return true;
       }
-      // Trust cookies even if API fails
-      return true;
+      log.warn({ msg: 'Instagram session verification did not confirm login' });
+      return false;
     } catch (e) {
-      log.warn({ msg: 'API verification error', error: e.message });
-      return true;
+      log.warn({ msg: 'Instagram session verification error', error: e.message });
+      return false;
     }
   }
 
@@ -199,15 +284,61 @@ class IgClient {
     }
   }
 
+  async _getWebProfile(username, { force = false } = {}) {
+    const key = username.toLowerCase();
+    const cached = this._profileCache.get(key);
+    if (!force && cached && Date.now() - cached.fetchedAt < 60_000) {
+      return cached.user;
+    }
+
+    const response = await this.axiosInstance.get(`${IG_API}/users/web_profile_info/`, {
+      params: { username },
+      headers: { 'Referer': `${IG_BASE}/${encodeURIComponent(username)}/` },
+    });
+    this._assertApiResponse(response, 'Instagram web profile info');
+    const user = response.data?.data?.user;
+    if (!user) throw new Error(`Instagram web profile for @${username} is empty`);
+
+    this._profileCache.set(key, { user, fetchedAt: Date.now() });
+    return user;
+  }
+
+  _normalizeWebProfileUser(user) {
+    return {
+      pk: user.id ?? user.pk,
+      username: user.username,
+      fullName: user.full_name,
+      isPrivate: user.is_private,
+      isVerified: user.is_verified,
+      profilePicUrl: user.profile_pic_url_hd || user.profile_pic_url,
+      followerCount: user.edge_followed_by?.count ?? user.follower_count ?? 0,
+      followingCount: user.edge_follow?.count ?? user.following_count ?? 0,
+      mediaCount: user.edge_owner_to_timeline_media?.count ?? user.media_count ?? 0,
+      biography: user.biography ?? null,
+    };
+  }
+
   /**
-   * Get current profile details. Top search identifies the user, while the
-   * detailed endpoint supplies the freshest counters.
+   * Get current profile details. The web profile endpoint is preferred because
+   * it returns profile counters and the same timeline visible on instagram.com.
    */
-  async getUserByUsername(username) {
-    log.info({ msg: 'Fetching user info', username });
+  async getUserByUsername(username, options = {}) {
+    const { force = true } = options;
+    log.info({ msg: 'Fetching user info', username, force });
 
     if (!this.axiosInstance) {
       throw new Error('No axios instance — session not loaded');
+    }
+
+    try {
+      const webUser = await this._getWebProfile(username, { force });
+      return this._normalizeWebProfileUser(webUser);
+    } catch (e) {
+      log.warn({
+        msg: 'Web profile lookup failed; falling back to private API search',
+        username,
+        error: e.message,
+      });
     }
 
     const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
@@ -336,104 +467,203 @@ class IgClient {
     return this._normalizeMediaItem(item);
   }
 
+  _normalizeGraphNode(node, fallbackUser = {}) {
+    const isVideo = !!node.is_video;
+    const isCarousel = node.__typename === 'GraphSidecar';
+    const isReel = node.product_type === 'clips';
+    const children = isCarousel
+      ? (node.edge_sidecar_to_children?.edges || []).map(edge => edge.node).filter(Boolean)
+      : [node];
+    const carouselItems = children.map(child => ({
+      type: child.is_video ? 'video' : 'photo',
+      url: child.is_video ? child.video_url : child.display_url,
+    })).filter(media => media.url);
+
+    return {
+      pk: String(node.id),
+      id: String(node.id),
+      type: isCarousel ? 'carousel' : (isReel ? 'reel' : (isVideo ? 'video' : 'photo')),
+      isVideo,
+      isReel,
+      caption: node.edge_media_to_caption?.edges?.[0]?.node?.text ?? '',
+      shortcode: node.shortcode,
+      takenAt: node.taken_at_timestamp,
+      takenAtIso: node.taken_at_timestamp
+        ? new Date(node.taken_at_timestamp * 1000).toISOString()
+        : null,
+      mediaUrls: carouselItems.map(media => media.url),
+      carouselItems,
+      likeCount: node.edge_media_preview_like?.count ?? node.edge_liked_by?.count ?? 0,
+      commentCount: node.edge_media_to_comment?.count ?? 0,
+      viewCount: node.video_view_count ?? node.video_play_count ?? null,
+      location: node.location ? { name: node.location.name } : null,
+      user: {
+        pk: fallbackUser.id ?? fallbackUser.pk,
+        username: fallbackUser.username,
+        fullName: fallbackUser.full_name ?? fallbackUser.fullName,
+        profilePicUrl: fallbackUser.profile_pic_url ?? fallbackUser.profilePicUrl,
+        isVerified: fallbackUser.is_verified ?? fallbackUser.isVerified,
+      },
+      music: null,
+      hasAudio: isVideo,
+      videoDuration: null,
+    };
+  }
+
+  _sortAndDedupePosts(posts, limit = Infinity) {
+    const unique = new Map();
+    for (const post of posts) {
+      if (!post?.pk) continue;
+      const key = String(post.pk).split('_')[0];
+      const existing = unique.get(key);
+      if (!existing || (post.mediaUrls?.length || 0) > (existing.mediaUrls?.length || 0)) {
+        unique.set(key, post);
+      }
+    }
+    return [...unique.values()]
+      .sort((a, b) => (b.takenAt || 0) - (a.takenAt || 0))
+      .slice(0, limit);
+  }
+
+  async _getFeedViaWebProfile(username, limit) {
+    const user = await this._getWebProfile(username);
+    const edges = user.edge_owner_to_timeline_media?.edges;
+    if (!Array.isArray(edges)) {
+      throw new Error('Instagram web profile response has no timeline edges');
+    }
+    const posts = edges.map(edge => ({
+      ...this._normalizeGraphNode(edge.node, user),
+      source: 'web_profile_info',
+    }));
+    return this._sortAndDedupePosts(posts, limit);
+  }
+
   /**
    * Get user feed (recent posts)
    *
-   * روش‌های مختلف برای دریافت پست‌ها (به ترتیب اولویت):
-   *   1. feed/user/{pk}/ endpoint (پایدارترین)
-   *   2. GraphQL query (fallback)
-   *   3. web/search/topsearch برای پیدا کردن pk
+   * Detection order:
+   *   1. web_profile_info timeline (same source as instagram.com)
+   *   2. feed/user/{pk}/ private endpoint
+   *   3. legacy GraphQL query as a last-resort compatibility fallback
    */
   async getUserFeed(pkOrUsername, options = {}) {
-    const { limit = 10 } = options;
-    const username = typeof pkOrUsername === 'string' && !pkOrUsername.match(/^\d+$/)
-      ? pkOrUsername
-      : pkOrUsername;
+    const { limit = 10, afterPk = null } = options;
+    const username = String(pkOrUsername);
+    const canonicalAfterPk = String(afterPk || '').split('_')[0];
+    const errors = [];
+    let successfulSource = false;
+    let webPosts = [];
 
-    log.info({ msg: 'Fetching user feed', username, limit });
+    log.info({ msg: 'Fetching user feed', username, limit, afterPk });
+    if (!this.axiosInstance) throw new Error('No axios instance — session not loaded');
 
-    if (!this.axiosInstance) {
-      throw new Error('No axios instance — session not loaded');
-    }
-
-    // Step 1: Get user pk via search
-    const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
-
-    const searchRes = await this.axiosInstance.get(searchUrl, {
-      headers: { 'Referer': `${IG_BASE}/${username}/` },
-    });
-    this._assertApiResponse(searchRes, 'Instagram feed user search');
-
-    const users = searchRes.data?.users || [];
-    const userMatch = users.find(u => u.user?.username?.toLowerCase() === username.toLowerCase());
-
-    if (!userMatch?.user) {
-      log.warn({ msg: 'User not found in search', username });
-      return [];
-    }
-
-    const userPk = userMatch.user.pk;
-    log.info({ msg: 'Found user', username, pk: userPk });
-
-    // Step 2: Try feed/user/{pk}/ endpoint (most reliable)
     try {
-      const posts = await this._getFeedViaUserEndpoint(userPk, username, limit, userMatch.user);
-      if (posts.length > 0) {
-        log.info({ msg: 'Feed fetched via feed/user endpoint', count: posts.length });
-        return posts;
+      webPosts = await this._getFeedViaWebProfile(username, limit);
+      successfulSource = true;
+      const containsWatermark = canonicalAfterPk && webPosts.some(post =>
+        String(post.pk).split('_')[0] === canonicalAfterPk);
+      if (webPosts.length > 0 && (!canonicalAfterPk || containsWatermark)) {
+        log.info({ msg: 'Feed fetched via web profile endpoint', username, count: webPosts.length });
+        return webPosts;
       }
-      log.warn({ msg: 'feed/user endpoint returned no posts' });
+      log.warn({
+        msg: 'Web timeline needs private-feed recovery',
+        username,
+        count: webPosts.length,
+        watermarkFound: containsWatermark,
+      });
     } catch (e) {
-      log.warn({ msg: 'feed/user endpoint failed', error: e.message });
+      errors.push(`web_profile_info: ${e.message}`);
+      log.warn({ msg: 'Web profile feed failed; trying private feed', username, error: e.message });
     }
 
-    // Step 3: Fallback to GraphQL
+    let userMatch;
     try {
-      const posts = await this._getFeedViaGraphQL(userPk, username, limit, userMatch.user);
-      if (posts.length > 0) {
-        log.info({ msg: 'Feed fetched via GraphQL', count: posts.length });
-        return posts;
-      }
+      const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
+      const searchRes = await this.axiosInstance.get(searchUrl, {
+        headers: { 'Referer': `${IG_BASE}/${username}/` },
+      });
+      this._assertApiResponse(searchRes, 'Instagram feed user search');
+      userMatch = (searchRes.data?.users || []).find(entry =>
+        entry.user?.username?.toLowerCase() === username.toLowerCase());
+      if (!userMatch?.user) throw new Error(`User @${username} not found`);
     } catch (e) {
-      log.warn({ msg: 'GraphQL failed', error: e.message });
+      errors.push(`user_search: ${e.message}`);
     }
 
-    log.warn({ msg: 'All methods failed for feed fetch', username });
-    return [];
+    if (userMatch?.user) {
+      const userPk = userMatch.user.pk;
+      try {
+        const privatePosts = await this._getFeedViaUserEndpoint(
+          userPk,
+          username,
+          Math.max(limit, canonicalAfterPk ? 50 : limit),
+          userMatch.user,
+          canonicalAfterPk
+        );
+        successfulSource = true;
+        const merged = this._sortAndDedupePosts([...webPosts, ...privatePosts], 50);
+        if (merged.length > 0) {
+          log.info({ msg: 'Feed recovered via private endpoint', username, count: merged.length });
+          return merged;
+        }
+      } catch (e) {
+        errors.push(`private_feed: ${e.message}`);
+        log.warn({ msg: 'Private user feed failed', username, error: e.message });
+      }
+
+      try {
+        const graphqlPosts = await this._getFeedViaGraphQL(userPk, username, limit, userMatch.user);
+        successfulSource = true;
+        const merged = this._sortAndDedupePosts([...webPosts, ...graphqlPosts], 50);
+        if (merged.length > 0) return merged;
+      } catch (e) {
+        errors.push(`legacy_graphql: ${e.message}`);
+      }
+    }
+
+    if (successfulSource) return this._sortAndDedupePosts(webPosts, 50);
+    throw new Error(`All Instagram feed sources failed for @${username}: ${errors.join(' | ')}`);
   }
 
   /**
    * Method 1: feed/user/{pk}/ endpoint
    * این endpoint قدیمی اما پایدار هست و با cookies کار می‌کنه.
    */
-  async _getFeedViaUserEndpoint(userPk, username, limit, userInfo) {
-    const feedUrl = `${IG_API}/feed/user/${userPk}/?count=${limit}`;
+  async _getFeedViaUserEndpoint(userPk, username, limit, userInfo, stopPk = null) {
+    const items = [];
+    let maxId = null;
+    let page = 0;
+    const maxItems = Math.max(1, Math.min(50, limit));
 
-    log.debug({ msg: 'Trying feed/user endpoint', pk: userPk });
+    do {
+      const count = Math.min(12, maxItems - items.length);
+      const res = await this.axiosInstance.get(`${IG_API}/feed/user/${userPk}/`, {
+        params: { count, ...(maxId ? { max_id: maxId } : {}) },
+        headers: { 'Referer': `${IG_BASE}/${username}/` },
+      });
+      this._assertApiResponse(res, 'Instagram private user feed');
+      const pageItems = res.data?.items;
+      if (!Array.isArray(pageItems)) throw new Error('Private user feed has no items array');
+      items.push(...pageItems);
+      page++;
 
-    const res = await this.axiosInstance.get(feedUrl, {
-      headers: { 'Referer': `${IG_BASE}/${username}/` },
-    });
+      const foundStop = stopPk && pageItems.some(item =>
+        String(item.id ?? item.pk).split('_')[0] === stopPk);
+      if (foundStop || pageItems.length === 0) break;
+      maxId = res.data?.next_max_id || null;
+    } while (maxId && items.length < maxItems && page < 5);
 
-    if (res.status !== 200) {
-      throw new Error(`feed/user returned ${res.status}`);
-    }
-
-    const items = res.data?.items;
-    if (!items || !Array.isArray(items)) {
-      log.debug({ msg: 'feed/user: no items array', dataType: typeof res.data });
-      throw new Error('feed/user: no items in response');
-    }
-
-    log.info({ msg: 'feed/user: items found', count: items.length });
-
-    return items
-      .slice(0, limit)
-      .map(item => this._normalizeMediaItem(item, {
+    log.info({ msg: 'Private user feed fetched', count: items.length, pages: page });
+    const posts = items.slice(0, maxItems).map(item => ({
+      ...this._normalizeMediaItem(item, {
         ...userInfo,
         pk: userPk,
         username,
-      }));
+      }),
+      source: 'private_user_feed',
+    }));
+    return this._sortAndDedupePosts(posts, maxItems);
   }
 
   /**
@@ -517,7 +747,7 @@ class IgClient {
       });
     }
 
-    return posts;
+    return posts.map(post => ({ ...post, source: 'legacy_graphql' }));
   }
 
   /**
@@ -537,27 +767,33 @@ class IgClient {
     }
 
     try {
-      // First get user pk
-      const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
-      const searchRes = await this.axiosInstance.get(searchUrl, {
-        headers: { 'Referer': `${IG_BASE}/` },
-      });
+      let userPk;
+      try {
+        const webUser = await this._getWebProfile(username);
+        userPk = webUser.id ?? webUser.pk;
+      } catch {
+        const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
+        const searchRes = await this.axiosInstance.get(searchUrl, {
+          headers: { 'Referer': `${IG_BASE}/` },
+        });
+        this._assertApiResponse(searchRes, 'Instagram story user search');
+        const users = searchRes.data?.users || [];
+        const userMatch = users.find(entry =>
+          entry.user?.username?.toLowerCase() === username.toLowerCase());
+        userPk = userMatch?.user?.pk;
+      }
 
-      const users = searchRes.data?.users || [];
-      const userMatch = users.find(u => u.user?.username?.toLowerCase() === username.toLowerCase());
-
-      if (!userMatch?.user?.pk) {
+      if (!userPk) {
         log.warn({ msg: 'Cannot find user for stories', username });
         return [];
       }
-
-      const userPk = userMatch.user.pk;
 
       // Try to fetch stories via the reels endpoint
       const storiesUrl = `${IG_API}/feed/reels_media/?user_ids=${userPk}`;
       const storiesRes = await this.axiosInstance.get(storiesUrl, {
         headers: { 'Referer': `${IG_BASE}/` },
       });
+      this._assertApiResponse(storiesRes, 'Instagram stories');
 
       const reelsMedia = storiesRes.data?.reels;
       if (!reelsMedia || !reelsMedia[userPk]) {
@@ -645,12 +881,27 @@ class IgClient {
         hasSessionId: !!this.session.cookies?.sessionid,
         hasCsrfToken: !!this.session.cookies?.csrftoken,
         hasDsUserId: !!this.session.cookies?.ds_user_id,
-        dsUserId: this.session.cookies?.ds_user_id,
       } : null,
-      browser: null, // No Playwright anymore
+      browser: {
+        runtimeEnabled: false,
+        note: 'Playwright is reserved for interactive session creation; HTTP polling is safer and lighter in production',
+      },
       proxy: {
         configMode: config.proxy.mode,
-        note: 'Using GraphQL API (no browser needed)',
+        active: this.stickyProxy,
+        note: config.proxy.mode === 'static'
+          ? 'Using one stable proxy identity for the Instagram session'
+          : 'Direct connection; avoid rotating free proxies with an authenticated session',
+      },
+      requestSafety: {
+        nextRequestAt: this._nextRequestAt ? new Date(this._nextRequestAt).toISOString() : null,
+        cooldownUntil: this._cooldownUntil > Date.now()
+          ? new Date(this._cooldownUntil).toISOString()
+          : null,
+        cooldownReason: this._cooldownReason,
+        cachedProfiles: this._profileCache.size,
+        requestDelayMin: config.antiDetect.requestDelayMin,
+        requestDelayMax: config.antiDetect.requestDelayMax,
       },
       lastError: this.lastError,
       lastErrorAt: this.lastErrorAt,

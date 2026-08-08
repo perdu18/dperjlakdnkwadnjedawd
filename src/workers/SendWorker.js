@@ -19,6 +19,7 @@ import config from '../config/env.js';
 class SendWorker {
   constructor() {
     this.queue = [];
+    this.queuedJobKeys = new Set();
     this.mutex = new Mutex();
     this.isProcessing = false;
     this.maxConcurrent = config.workers.maxConcurrentSends;
@@ -31,7 +32,13 @@ class SendWorker {
    * Add an item to the queue
    */
   async enqueue(job) {
-    this.queue.push(job);
+    const jobKey = job.sentItemId ? `sent-item:${job.sentItemId}` : null;
+    if (jobKey && this.queuedJobKeys.has(jobKey)) {
+      log.debug({ msg: 'Duplicate queue job ignored', jobKey });
+      return false;
+    }
+    if (jobKey) this.queuedJobKeys.add(jobKey);
+    this.queue.push({ ...job, jobKey });
     log.debug({
       msg: 'Job enqueued',
       type: job.type,
@@ -42,6 +49,57 @@ class SendWorker {
 
     // Trigger processing
     this._processNext();
+    return true;
+  }
+
+  /**
+   * Restore durable pending jobs after a restart or manual retry request.
+   */
+  async recoverPending(limit = 1000, { recoverInterrupted = false } = {}) {
+    const recovered = recoverInterrupted
+      ? SentItemsRepository.recoverInterrupted()
+      : { changes: 0 };
+    const pending = SentItemsRepository.getPending(limit);
+    const enqueued = await this.recoverRows(pending);
+
+    log.info({
+      msg: 'Durable send jobs recovered',
+      interrupted: recovered.changes,
+      pending: pending.length,
+      enqueued,
+    });
+    return enqueued;
+  }
+
+  async recoverRows(rows) {
+    let enqueued = 0;
+    for (const row of rows) {
+      const account = TrackedAccountsRepository.getByUsername(row.account_username);
+      if (!account) continue;
+      let mediaUrls = [];
+      try {
+        mediaUrls = row.media_urls ? JSON.parse(row.media_urls) : [];
+      } catch {}
+
+      const added = await this.enqueue({
+        sentItemId: row.id,
+        type: row.media_type,
+        account,
+        item: {
+          pk: row.media_pk,
+          id: row.media_id || row.media_pk,
+          type: row.media_type,
+          isReel: row.media_type === 'reel',
+          shortcode: row.shortcode,
+          takenAt: row.taken_at,
+          caption: row.caption || '',
+          mediaUrls,
+          mediaUrl: mediaUrls[0] || null,
+        },
+      });
+      if (added) enqueued++;
+    }
+    return enqueued;
   }
 
   /**
@@ -63,6 +121,7 @@ class SendWorker {
           })
           .finally(() => {
             this.active--;
+            if (job.jobKey) this.queuedJobKeys.delete(job.jobKey);
             this._processNext();
           });
       }
@@ -103,7 +162,7 @@ class SendWorker {
       // Refresh statistics immediately before sending. Failures use the queued
       // snapshot so a temporary Instagram API issue does not discard the post.
       try {
-        const profile = await igClient.getUserByUsername(account.username);
+        const profile = await igClient.getUserByUsername(account.username, { force: false });
         TrackedAccountsRepository.updateProfile(account.username, profile);
         Object.assign(account, {
           pk: profile.pk,

@@ -1225,10 +1225,11 @@ ${posts.slice(0, 5).map((p, i) => `   ${i+1}. <code>${p.shortcode}</code> — ${
     for (const item of failed) {
       SentItemsRepository.updateStatus(item.id, 'pending');
     }
+    const enqueued = await sendWorker.recoverRows(failed);
 
-    log.info({ msg: 'Retry triggered via bot', count: failed.length });
+    log.info({ msg: 'Retry triggered via bot', count: failed.length, enqueued });
 
-    await this._sendMessage(chatId, `🔄 ${failed.length} آیتم ناموفق به حالت «در انتظار» برگردانده شد.\n\nربات به‌زودی شروع به پردازش مجدد می‌کنه.`);
+    await this._sendMessage(chatId, `🔄 ${failed.length} آیتم ناموفق به حالت «در انتظار» برگردانده شد و ${enqueued} آیتم وارد صف شد.`);
   }
 
   async _cmdRestart(chatId, args) {

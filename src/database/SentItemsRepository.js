@@ -42,7 +42,7 @@ export const SentItemsRepository = {
     if (!postTypes) params.push(mediaType);
 
     return getOne(
-      `SELECT id, status FROM sent_items
+      `SELECT id, status, retry_count FROM sent_items
        WHERE tracked_account_id = ?
          AND (media_pk = ? OR substr(media_pk, 1, instr(media_pk, '_') - 1) = ?)
          AND ${typeClause}`,
@@ -87,6 +87,18 @@ export const SentItemsRepository = {
 
     params.push(id);
     db.prepare(`UPDATE sent_items SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+  },
+
+  /**
+   * Reclaim jobs interrupted by a process restart.
+   */
+  recoverInterrupted() {
+    const db = getDb();
+    return db.prepare(`
+      UPDATE sent_items
+      SET status = 'pending', error = 'Recovered after process restart'
+      WHERE status = 'processing'
+    `).run();
   },
 
   /**
@@ -158,12 +170,15 @@ export const SentItemsRepository = {
   },
 
   /**
-   * حذف رکوردهای قدیمی‌تر از N روز
+   * Remove only exhausted failures. Sent/skipped rows are the durable
+   * deduplication ledger and must not be deleted by routine cleanup.
    */
   cleanupOld(days = 30) {
     const db = getDb();
     const cutoff = Math.floor(Date.now() / 1000) - (days * 86400);
-    return db.prepare('DELETE FROM sent_items WHERE created_at < ? AND status = ?', [cutoff, 'sent']).run();
+    return db.prepare(
+      "DELETE FROM sent_items WHERE created_at < ? AND status = 'failed' AND retry_count >= 3"
+    ).run(cutoff);
   },
 
   /**

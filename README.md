@@ -326,20 +326,42 @@ HASHTAG_FILTER=sale,discount
 
 اگه خالی باشه، همه پست‌ها ارسال میشه.
 
-### تنظیمات Anti-Detection
+### ایمنی حساب اینستاگرام و محدودیت درخواست
 
-```
-# تاخیر تصادفی بین درخواست‌ها (میلی‌ثانیه)
+هیچ روش غیررسمی نمی‌تواند عدم مسدودشدن حساب را تضمین کند. برای کاهش ریسک، برنامه از User-Agent ثابت session، صف مرکزی درخواست‌ها، فاصله و زمان‌بندی تصادفی و cooldown خودکار برای `429`، `feedback_required` و challenge استفاده می‌کند.
+
+```env
+# فاصله بین تمام درخواست‌های Instagram، نه فقط بین اکانت‌ها
 REQUEST_DELAY_MIN=2000
 REQUEST_DELAY_MAX=5000
 
-# تغییر User-Agent
-ROTATE_USER_AGENT=true
+# User-Agent باید با session ساخته‌شده ثابت بماند
+ROTATE_USER_AGENT=false
 
-# فواصل چک کردن (ثانیه)
-POLL_INTERVAL_POSTS=120
-POLL_INTERVAL_STORIES=90
+# حلقه‌ها دقیق هستند و برای جلوگیری از الگوی رباتیک jitter دارند
+POLL_INTERVAL_POSTS=180
+POLL_INTERVAL_STORIES=240
+SCHEDULE_JITTER_PERCENT=15
+
+# تعداد پست‌های بازیابی‌شده؛ مانع از دست رفتن پست پس از downtime می‌شود
+FEED_FETCH_LIMIT=12
+
+# توقف خودکار پس از rate-limit/challenge، بر حسب ثانیه
+IG_RATE_LIMIT_COOLDOWN=900
+IG_CHALLENGE_COOLDOWN=3600
+
+# محافظت از تمام مسیرهای /debug در production
+DEBUG_API_TOKEN=replace-with-a-long-random-secret
 ```
+
+برای یک session احراز هویت‌شده از پروکسی‌های رایگان و چرخشی استفاده نکنید. در صورت نیاز، یک IP ثابت و معتبر تنظیم کنید:
+
+```env
+PROXY_MODE=static
+PROXY_STATIC_URL=socks5://user:pass@stable-host:port
+```
+
+Playwright فقط برای ساخت یا بازیابی تعاملی session با `npm run setup:instagram` استفاده می‌شود. اجرای دائم Chromium روی Railway حافظه بیشتری مصرف می‌کند و برای polling مداوم، نسبت به HTTPهای محدودشده ریسک challenge بالاتری دارد.
 
 ### مدیریت خطا
 
@@ -364,11 +386,13 @@ DAILY_STATS_HOUR=9   # ساعت 9 صبح
 GET /health         → وضعیت سرویس‌ها
 GET /stats          → آمار امروز
 POST /refresh-proxies → آپدیت دستی پروکسی‌ها
+POST /debug/poll/:username → تست دستی با هدر Authorization
 ```
 
 مثال:
 ```bash
 curl http://localhost:3000/health
+curl -X POST -H "Authorization: Bearer $DEBUG_API_TOKEN" http://localhost:3000/debug/poll/username
 ```
 
 ### لاگ‌ها

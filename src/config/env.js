@@ -90,8 +90,9 @@ const config = {
   // Monitoring
   monitoring: {
     targetAccounts: getList('TARGET_ACCOUNTS'),
-    pollIntervalPosts: getInt('POLL_INTERVAL_POSTS', 120),
-    pollIntervalStories: getInt('POLL_INTERVAL_STORIES', 90),
+    pollIntervalPosts: getInt('POLL_INTERVAL_POSTS', 180),
+    pollIntervalStories: getInt('POLL_INTERVAL_STORIES', 240),
+    feedFetchLimit: getInt('FEED_FETCH_LIMIT', 12),
     keywordFilter: getList('KEYWORD_FILTER'),
     hashtagFilter: getList('HASHTAG_FILTER'),
   },
@@ -126,8 +127,11 @@ const config = {
   antiDetect: {
     requestDelayMin: getInt('REQUEST_DELAY_MIN', 2000),
     requestDelayMax: getInt('REQUEST_DELAY_MAX', 5000),
-    rotateUserAgent: getBool('ROTATE_USER_AGENT', true),
+    rotateUserAgent: getBool('ROTATE_USER_AGENT', false),
     logoutAfterRequest: getBool('LOGOUT_AFTER_REQUEST', false),
+    rateLimitCooldown: getInt('IG_RATE_LIMIT_COOLDOWN', 15 * 60),
+    challengeCooldown: getInt('IG_CHALLENGE_COOLDOWN', 60 * 60),
+    scheduleJitterPercent: getInt('SCHEDULE_JITTER_PERCENT', 15),
   },
 
   // Logging
@@ -145,6 +149,7 @@ const config = {
     dailyStatsEnabled: getBool('DAILY_STATS_ENABLED', true),
     dailyStatsHour: getInt('DAILY_STATS_HOUR', 9),
     adminIds: getList('ADMIN_IDS'),
+    debugApiToken: get('DEBUG_API_TOKEN'),
   },
 };
 
@@ -162,7 +167,6 @@ const validate = () => {
   }
 
   if (!config.instagram.username) errors.push('IG_USERNAME is required');
-  if (!config.instagram.password) errors.push('IG_PASSWORD is required');
 
   if (config.monitoring.targetAccounts.length === 0) {
     errors.push('TARGET_ACCOUNTS is required (comma-separated)');
