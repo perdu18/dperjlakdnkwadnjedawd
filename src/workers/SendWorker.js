@@ -10,6 +10,8 @@ import { workerLogger as log } from '../utils/Logger.js';
 import { sleep, formatBytes } from '../utils/Helpers.js';
 import { incrementDailyStat } from '../database/db.js';
 import SentItemsRepository from '../database/SentItemsRepository.js';
+import TrackedAccountsRepository from '../database/TrackedAccountsRepository.js';
+import igClient from '../instagram/IgClient.js';
 import mediaDownloader from '../instagram/MediaDownloader.js';
 import channelSender from '../telegram/ChannelSender.js';
 import config from '../config/env.js';
@@ -61,6 +63,7 @@ class SendWorker {
           })
           .finally(() => {
             this.active--;
+            this._processNext();
           });
       }
     } finally {
@@ -94,9 +97,49 @@ class SendWorker {
     }
 
     let downloadResult = null;
-    let currentStage = 'download';  // Track current stage for error reporting
+    let currentStage = 'refresh';
 
     try {
+      // Refresh statistics immediately before sending. Failures use the queued
+      // snapshot so a temporary Instagram API issue does not discard the post.
+      try {
+        const profile = await igClient.getUserByUsername(account.username);
+        TrackedAccountsRepository.updateProfile(account.username, profile);
+        Object.assign(account, {
+          pk: profile.pk,
+          full_name: profile.fullName,
+          profile_pic_url: profile.profilePicUrl,
+          is_private: profile.isPrivate ? 1 : 0,
+          is_verified: profile.isVerified ? 1 : 0,
+          follower_count: profile.followerCount,
+          following_count: profile.followingCount,
+          media_count: profile.mediaCount,
+          biography: profile.biography,
+        });
+      } catch (e) {
+        log.warn({
+          msg: 'Send-time profile refresh failed; using queued statistics',
+          username: account.username,
+          error: e.message,
+        });
+      }
+
+      if (type === 'post' || type === 'reel') {
+        try {
+          const freshItem = await igClient.getMediaInfo(item.pk);
+          Object.assign(item, freshItem, {
+            user: { ...(item.user || {}), ...(freshItem.user || {}) },
+          });
+        } catch (e) {
+          log.warn({
+            msg: 'Send-time media refresh failed; using queued post data',
+            mediaPk: item.pk,
+            error: e.message,
+          });
+        }
+      }
+
+      currentStage = 'download';
       // Step 1: Download media
       log.info({
         msg: '📥 Step 1: Downloading media',

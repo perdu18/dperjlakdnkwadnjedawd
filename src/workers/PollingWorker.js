@@ -152,50 +152,49 @@ class PollingWorker {
   async _pollPostsForAccount(account) {
     log.info({ msg: 'Polling posts for account', username: account.username, hasPk: !!account.pk, lastPostPk: account.last_post_pk });
 
-    // Fetch user info if not cached — یا اگه آمار موجود نیست
-    if (!account.pk || !account.follower_count) {
-      log.info({ msg: 'Fetching user info for account', username: account.username, hasPk: !!account.pk });
-      try {
-        const info = await igClient.getUserByUsername(account.username);
+    // Refresh profile statistics on every poll so queued jobs carry current data.
+    log.info({ msg: 'Refreshing user info for account', username: account.username, hasPk: !!account.pk });
+    try {
+      const info = await igClient.getUserByUsername(account.username);
 
-        TrackedAccountsRepository.updateProfile(account.username, {
-          pk: info.pk,
-          fullName: info.fullName,
-          profilePicUrl: info.profilePicUrl,
-          isPrivate: info.isPrivate,
-          isVerified: info.isVerified,
-          followerCount: info.followerCount,
-          followingCount: info.followingCount,
-          mediaCount: info.mediaCount,
-          biography: info.biography,
-        });
+      TrackedAccountsRepository.updateProfile(account.username, info);
+      Object.assign(account, {
+        pk: info.pk,
+        full_name: info.fullName,
+        profile_pic_url: info.profilePicUrl,
+        is_private: info.isPrivate ? 1 : 0,
+        is_verified: info.isVerified ? 1 : 0,
+        follower_count: info.followerCount,
+        following_count: info.followingCount,
+        media_count: info.mediaCount,
+        biography: info.biography,
+      });
 
-        account.pk = info.pk;
-        account.full_name = info.fullName;
-        account.is_private = info.isPrivate ? 1 : 0;
-        account.follower_count = info.followerCount;
-        account.following_count = info.followingCount;
-        account.media_count = info.mediaCount;
+      log.info({
+        msg: 'User info refreshed',
+        username: account.username,
+        pk: info.pk,
+        isPrivate: info.isPrivate,
+        followers: info.followerCount,
+        following: info.followingCount,
+        posts: info.mediaCount,
+      });
 
-        log.info({
-          msg: 'User info fetched',
-          username: account.username,
-          pk: info.pk,
-          isPrivate: info.isPrivate,
-          followers: info.followerCount,
-          posts: info.mediaCount,
-        });
-
-        if (info.isPrivate) {
-          log.warn({ msg: 'Account is private - cannot fetch posts', username: account.username });
-          TrackedAccountsRepository.recordError(account.username, 'Account is private');
-          return;
-        }
-      } catch (e) {
-        log.error({ msg: 'Failed to fetch user info', username: account.username, error: e.message });
-        TrackedAccountsRepository.recordError(account.username, `getUserByUsername: ${e.message}`);
+      if (info.isPrivate) {
+        log.warn({ msg: 'Account is private - cannot fetch posts', username: account.username });
+        TrackedAccountsRepository.recordError(account.username, 'Account is private');
+        return;
+      }
+    } catch (e) {
+      TrackedAccountsRepository.recordError(account.username, `getUserByUsername: ${e.message}`);
+      if (!account.pk) {
         throw e;
       }
+      log.warn({
+        msg: 'Profile refresh failed; continuing with cached account data',
+        username: account.username,
+        error: e.message,
+      });
     }
 
     // Fetch recent posts - استفاده از username به‌جای pk چون API جدید username می‌خواد
@@ -225,8 +224,10 @@ class PollingWorker {
     const lastSeenPk = account.last_post_pk;
     const newPosts = [];
 
+    const canonicalLastSeenPk = String(lastSeenPk || '').split('_')[0];
     for (const post of recentPosts) {
-      if (post.pk === lastSeenPk) break;
+      const canonicalPostPk = String(post.pk || '').split('_')[0];
+      if (canonicalLastSeenPk && canonicalPostPk === canonicalLastSeenPk) break;
       newPosts.push(post);
     }
 
@@ -253,8 +254,9 @@ class PollingWorker {
     // Filter and enqueue
     for (const post of newPosts.reverse()) {  // Send oldest first
       const filterResult = this._shouldSendPost(post);
+      const mediaType = post.isReel ? 'reel' : 'post';
 
-      const exists = SentItemsRepository.exists(account.id, post.pk, 'post');
+      const exists = SentItemsRepository.exists(account.id, post.pk, mediaType);
       if (exists) {
         log.debug({ msg: 'Post already in DB, skipping', postPk: post.pk });
         continue;
@@ -267,14 +269,14 @@ class PollingWorker {
           trackedAccountId: account.id,
           mediaPk: post.pk,
           mediaId: post.id,
-          mediaType: 'post',
+          mediaType,
           shortcode: post.shortcode,
           takenAt: post.takenAt,
           caption: post.caption,
           mediaUrls: post.mediaUrls,
         });
         SentItemsRepository.updateStatus(
-          SentItemsRepository.exists(account.id, post.pk, 'post').id,
+          SentItemsRepository.exists(account.id, post.pk, mediaType).id,
           'skipped',
           { error: filterResult.reason }
         );
@@ -287,12 +289,17 @@ class PollingWorker {
         trackedAccountId: account.id,
         mediaPk: post.pk,
         mediaId: post.id,
-        mediaType: post.isReel ? 'reel' : 'post',
+        mediaType,
         shortcode: post.shortcode,
         takenAt: post.takenAt,
         caption: post.caption,
         mediaUrls: post.mediaUrls,
       });
+
+      if (created.changes === 0) {
+        log.debug({ msg: 'Post insert was ignored as duplicate', postPk: post.pk, mediaType });
+        continue;
+      }
 
       await sendWorker.enqueue({
         sentItemId: created.lastInsertRowid,

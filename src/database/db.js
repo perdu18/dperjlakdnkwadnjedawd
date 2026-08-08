@@ -282,50 +282,6 @@ const runMigrations = () => {
     CREATE INDEX IF NOT EXISTS idx_event_log_created ON event_log(created_at);
   `);
 
-  // highlights tracking (جدید)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS tracked_highlights (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tracked_account_id INTEGER NOT NULL,
-      highlight_id TEXT NOT NULL,
-      title TEXT,
-      item_count INTEGER DEFAULT 0,
-      cover_url TEXT,
-      is_deleted INTEGER DEFAULT 0,
-      first_seen_at INTEGER DEFAULT (strftime('%s','now')),
-      last_checked_at INTEGER,
-      FOREIGN KEY (tracked_account_id) REFERENCES tracked_accounts(id) ON DELETE CASCADE,
-      UNIQUE(tracked_account_id, highlight_id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_highlights_account ON tracked_highlights(tracked_account_id);
-    CREATE INDEX IF NOT EXISTS idx_highlights_deleted ON tracked_highlights(is_deleted);
-  `);
-
-  // Add columns to sent_items for highlights and edit tracking
-  try { db.exec(`ALTER TABLE sent_items ADD COLUMN is_edited INTEGER DEFAULT 0`); } catch (e) {}
-  try { db.exec(`ALTER TABLE sent_items ADD COLUMN is_deleted INTEGER DEFAULT 0`); } catch (e) {}
-
-  // Add columns to daily_stats for highlights
-  try { db.exec(`ALTER TABLE daily_stats ADD COLUMN highlights_sent INTEGER DEFAULT 0`); } catch (e) {}
-
-  // Add columns to tracked_accounts for ban tracking
-  try { db.exec(`ALTER TABLE tracked_accounts ADD COLUMN is_banned INTEGER DEFAULT 0`); } catch (e) {}
-  try { db.exec(`ALTER TABLE tracked_accounts ADD COLUMN ban_reason TEXT`); } catch (e) {}
-  try { db.exec(`ALTER TABLE tracked_accounts ADD COLUMN last_highlight_checked_at INTEGER`); } catch (e) {}
-
-  // Multi-channel config table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS telegram_channels (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      channel_id TEXT UNIQUE NOT NULL,
-      channel_username TEXT,
-      label TEXT,
-      is_active INTEGER DEFAULT 1,
-      created_at INTEGER DEFAULT (strftime('%s','now'))
-    );
-  `);
-
   log.info('Migrations completed');
 };
 
@@ -394,7 +350,7 @@ export const incrementDailyStat = (field, amount = 1) => {
   try {
     if (!db) return;
     // Whitelist field names to prevent SQL injection
-    const allowedFields = ['posts_sent', 'stories_sent', 'reels_sent', 'failed_count', 'skipped_count', 'total_download_bytes', 'highlights_sent'];
+    const allowedFields = ['posts_sent', 'stories_sent', 'reels_sent', 'failed_count', 'skipped_count', 'total_download_bytes'];
     if (!allowedFields.includes(field)) {
       log.warn({ msg: 'Invalid stat field', field });
       return;

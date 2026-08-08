@@ -33,11 +33,21 @@ export const SentItemsRepository = {
    * بررسی آیا قبلاً ارسال شده
    */
   exists(trackedAccountId, mediaPk, mediaType) {
-    const row = getOne(
-      'SELECT id, status FROM sent_items WHERE tracked_account_id = ? AND media_pk = ? AND media_type = ?',
-      [trackedAccountId, mediaPk, mediaType]
+    const canonicalPk = String(mediaPk).split('_')[0];
+    const postTypes = mediaType === 'post' || mediaType === 'reel';
+    const typeClause = postTypes
+      ? "media_type IN ('post', 'reel')"
+      : 'media_type = ?';
+    const params = [trackedAccountId, canonicalPk, canonicalPk];
+    if (!postTypes) params.push(mediaType);
+
+    return getOne(
+      `SELECT id, status FROM sent_items
+       WHERE tracked_account_id = ?
+         AND (media_pk = ? OR substr(media_pk, 1, instr(media_pk, '_') - 1) = ?)
+         AND ${typeClause}`,
+      params
     );
-    return row;
   },
 
   /**

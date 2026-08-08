@@ -155,9 +155,9 @@ export const TrackedAccountsRepository = {
       info.profilePicUrl || null,
       info.isPrivate ? 1 : 0,
       info.isVerified ? 1 : 0,
-      info.followerCount || 0,
-      info.followingCount || 0,
-      info.mediaCount || 0,
+      info.followerCount ?? 0,
+      info.followingCount ?? 0,
+      info.mediaCount ?? 0,
       info.biography || null,
       username.toLowerCase()
     );

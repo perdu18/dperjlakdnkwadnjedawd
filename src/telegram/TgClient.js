@@ -12,7 +12,7 @@
  * API کاملاً شبیه GramJS هست و session string قبلی هم کار می‌کنه.
  */
 
-import { TelegramClient, Api } from 'teleproto';
+import { TelegramClient } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { PromisedWebSockets } from 'teleproto/extensions/index.js';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
@@ -21,6 +21,7 @@ import { fileURLToPath } from 'url';
 
 import config from '../config/env.js';
 import { tgLogger as log } from '../utils/Logger.js';
+import { retryTgRequest } from '../utils/Retry.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -499,73 +500,16 @@ class TgClient {
   }
 
   /**
-   * Send a message with raw entities (برای expandable blockquote)
-   *
-   * این متد به‌جای parseMode از entities خام استفاده می‌کنه.
-   * برای expandable blockquote که از HTML پشتیبانی نمی‌شه، این روش لازمه.
-   *
-   * @param {string} text - متن خام (بدون HTML tags)
-   * @param {Array} entities - array of Api.MessageEntity objects
-   * @param {Object} options - گزینه‌های اضافی
-   */
-  async sendMessageWithEntities(text, entities = [], options = {}) {
-    const entity = await this.resolveChannel();
-
-    try {
-      const result = await this.client.invoke(
-        new Api.messages.SendMessage({
-          peer: entity,
-          message: text,
-          entities: entities,
-          noWebpage: !options.linkPreview,
-          replyTo: options.replyTo || undefined,
-        })
-      );
-
-      // Extract message id from result
-      let msgId = null;
-      if (result?.updates?.Updates) {
-        const msgs = result.updates.Updates.filter(u => u.className === 'UpdateNewMessage' || u.className === 'UpdateNewChannelMessage');
-        if (msgs.length > 0) {
-          msgId = msgs[0].message?.id;
-        }
-      }
-
-      return {
-        id: msgId,
-        chatId: entity.id?.toString?.() || null,
-      };
-    } catch (e) {
-      log.error({
-        msg: 'sendMessageWithEntities failed',
-        error: e.message,
-        textLength: text?.length,
-      });
-      throw e;
-    }
-  }
-
-  /**
    * Send a file (photo/video/document)
-   *
-   * از formattingEntities پشتیبانی می‌کنه برای expandable blockquote.
-   * اگه options.entities داده بشه، parseMode غیرفعال میشه و entities خام استفاده میشه.
    */
   async sendFile(filePath, options = {}) {
     const entity = await this.resolveChannel();
 
-    const sendOptions = {};
-
-    // اگه entities داده شده، از raw entities استفاده کن (نه HTML)
-    if (options.entities) {
-      sendOptions.caption = options.caption || '';
-      sendOptions.formattingEntities = options.entities;
-      // parseMode رو null کن تا teleproto HTML parse نکنه
-      sendOptions.parseMode = undefined;
-    } else {
-      sendOptions.parseMode = 'html';
-      sendOptions.caption = options.caption || '';
-    }
+    const sendOptions = {
+      parseMode: 'html',
+      caption: options.caption || '',
+      ...options,
+    };
 
     // Determine if photo or document
     if (options.asPhoto) {
@@ -582,11 +526,6 @@ class TgClient {
       sendOptions.ttl = options.ttl;
     }
 
-    // Remove custom options that teleproto doesn't understand
-    delete sendOptions.entities;
-    delete sendOptions.asPhoto;
-    delete sendOptions.asDocument;
-
     const result = await this.client.sendFile(entity, {
       file: filePath,
       ...sendOptions,
@@ -599,65 +538,94 @@ class TgClient {
   }
 
   /**
-   * Send an album (multiple photos/videos in one message)
+   * Send grouped media using Telegram's messages.sendMultiMedia flow.
+   * Telegram allows 2-10 items per album, so oversized carousels are split
+   * without creating a one-item trailing batch.
    */
   async sendAlbum(filePaths, options = {}) {
     const entity = await this.resolveChannel();
 
-    if (!filePaths || filePaths.length === 0) {
-      throw new Error('No files to send');
+    if (!Array.isArray(filePaths) || filePaths.length < 2) {
+      throw new Error('An album requires at least 2 files');
     }
 
-    // GramJS supports up to 10 items per album
-    const results = [];
+    const { caption = '', replyTo = undefined, ...extraOptions } = options;
     const batches = [];
-    for (let i = 0; i < filePaths.length; i += 10) {
-      batches.push(filePaths.slice(i, i + 10));
+    let offset = 0;
+
+    while (filePaths.length - offset > 10) {
+      const remaining = filePaths.length - offset;
+      const batchSize = remaining === 11 ? 9 : 10;
+      batches.push(filePaths.slice(offset, offset + batchSize));
+      offset += batchSize;
     }
+    batches.push(filePaths.slice(offset));
 
-    for (const batch of batches) {
-      const sendOpts = {};
+    const results = [];
+    let firstMessageId = null;
 
-      if (options.entities) {
-        // Raw entities mode (برای expandable blockquote)
-        sendOpts.caption = options.caption || '';
-        sendOpts.formattingEntities = options.entities;
-        sendOpts.parseMode = undefined;
-      } else {
-        sendOpts.caption = options.caption || '';
-        sendOpts.parseMode = 'html';
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      if (batch.length < 2 || batch.length > 10) {
+        throw new Error(`Invalid Telegram album batch size: ${batch.length}`);
       }
 
-      // forceDocument باید false باشه (نه undefined) تا teleproto بتونه عکس و ویدیو رو تشخیص بده
-      sendOpts.forceDocument = options.forceDocument ?? false;
-
-      // Remove custom options that teleproto doesn't understand
-      const cleanOpts = { ...sendOpts };
-      delete cleanOpts.entities;
-      delete cleanOpts.asPhoto;
-      delete cleanOpts.asDocument;
-
-      const result = await this.client.sendFile(entity, {
+      const captions = batch.map((_, itemIndex) =>
+        batchIndex === 0 && itemIndex === 0 ? caption : '');
+      const replyTarget = batchIndex === 0 ? replyTo : firstMessageId;
+      // Retry only the current batch. Retrying the whole carousel after a later
+      // batch fails would duplicate every batch already published.
+      const result = await retryTgRequest(() => this.client.sendFile(entity, {
+        ...extraOptions,
         file: batch,
-        ...cleanOpts,
-      });
+        caption: captions,
+        parseMode: 'html',
+        forceDocument: false,
+        supportsStreaming: true,
+        ...(replyTarget ? { replyTo: replyTarget } : {}),
+      }));
 
-      if (Array.isArray(result)) {
-        for (const r of result) {
-          results.push({
-            id: r.id,
-            chatId: r.chatId?.toString?.() || r.peerId?.toString?.() || null,
-          });
-        }
-      } else {
+      const messages = Array.isArray(result) ? result : [result];
+      for (const message of messages) {
+        if (!message) continue;
         results.push({
-          id: result.id,
-          chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
+          id: message.id,
+          chatId: message.chatId?.toString?.() || message.peerId?.toString?.() || null,
         });
       }
+
+      if (!firstMessageId) {
+        firstMessageId = results[0]?.id;
+      }
+    }
+
+    if (results.length === 0) {
+      throw new Error('Telegram returned no messages for album');
     }
 
     return results;
+  }
+
+  /**
+   * Send UTF-8 text as a document, optionally replying to another message.
+   */
+  async sendTextFile(content, options = {}) {
+    const entity = await this.resolveChannel();
+    const buffer = Buffer.from(String(content ?? ''), 'utf8');
+    buffer.name = options.filename || 'instagram-caption.txt';
+
+    const result = await this.client.sendFile(entity, {
+      file: buffer,
+      forceDocument: true,
+      caption: options.caption || '',
+      parseMode: 'html',
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+    });
+
+    return {
+      id: result.id,
+      chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
+    };
   }
 
   /**

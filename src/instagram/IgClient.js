@@ -190,8 +190,18 @@ class IgClient {
     }
   }
 
+  _assertApiResponse(response, context) {
+    const status = response?.status;
+    const data = response?.data;
+    const apiMessage = data?.message || data?.error_type;
+    if (status !== 200 || data?.status === 'fail' || apiMessage === 'login_required') {
+      throw new Error(`${context} failed (${status || 'no status'}${apiMessage ? `: ${apiMessage}` : ''})`);
+    }
+  }
+
   /**
-   * Get user info by username — GraphQL API
+   * Get current profile details. Top search identifies the user, while the
+   * detailed endpoint supplies the freshest counters.
    */
   async getUserByUsername(username) {
     log.info({ msg: 'Fetching user info', username });
@@ -201,57 +211,129 @@ class IgClient {
     }
 
     const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
-
     const res = await this.axiosInstance.get(searchUrl, {
       headers: { 'Referer': `${IG_BASE}/` },
     });
+    this._assertApiResponse(res, 'Instagram user search');
 
     const users = res.data?.users || [];
-    const user = users.find(u => u.user?.username?.toLowerCase() === username.toLowerCase());
-
-    if (!user?.user) {
+    const match = users.find(entry =>
+      entry.user?.username?.toLowerCase() === username.toLowerCase());
+    if (!match?.user) {
       throw new Error(`User @${username} not found`);
     }
 
-    const u = user.user;
-
-    // topsearch معمولاً follower_count برنمی‌گردونه
-    // اگه موجود نبود، از users/{pk}/info/ بگیریم
-    let followerCount = u.follower_count || 0;
-    let followingCount = u.following_count || 0;
-    let mediaCount = u.media_count || 0;
-    let biography = null;
-
-    if (!followerCount && u.pk) {
+    const searchUser = match.user;
+    let detailedUser = {};
+    if (searchUser.pk) {
       try {
-        log.debug({ msg: 'Fetching user info via users/{pk}/info/', pk: u.pk });
-        const infoRes = await this.axiosInstance.get(`${IG_API}/users/${u.pk}/info/`, {
+        const infoRes = await this.axiosInstance.get(`${IG_API}/users/${searchUser.pk}/info/`, {
           headers: { 'Referer': `${IG_BASE}/${username}/` },
         });
-
-        if (infoRes.data?.user) {
-          followerCount = infoRes.data.user.follower_count || 0;
-          followingCount = infoRes.data.user.following_count || 0;
-          mediaCount = infoRes.data.user.media_count || 0;
-          biography = infoRes.data.user.biography || null;
-        }
+        this._assertApiResponse(infoRes, 'Instagram user info');
+        detailedUser = infoRes.data?.user || {};
       } catch (e) {
-        log.debug({ msg: 'users/{pk}/info/ failed', error: e.message });
+        const hasSearchCounters = searchUser.follower_count != null
+          && searchUser.following_count != null
+          && searchUser.media_count != null;
+        if (!hasSearchCounters) throw e;
+        log.warn({
+          msg: 'Detailed profile request failed; using complete search data',
+          username,
+          error: e.message,
+        });
       }
     }
 
+    const user = { ...searchUser, ...detailedUser };
     return {
-      pk: u.pk,
-      username: u.username,
-      fullName: u.full_name,
-      isPrivate: u.is_private,
-      isVerified: u.is_verified,
-      profilePicUrl: u.profile_pic_url,
-      followerCount,
-      followingCount,
-      mediaCount,
-      biography,
+      pk: user.pk,
+      username: user.username,
+      fullName: user.full_name,
+      isPrivate: user.is_private,
+      isVerified: user.is_verified,
+      profilePicUrl: user.profile_pic_url_hd || user.profile_pic_url,
+      followerCount: user.follower_count ?? 0,
+      followingCount: user.following_count ?? 0,
+      mediaCount: user.media_count ?? 0,
+      biography: user.biography ?? null,
     };
+  }
+
+  _normalizeMediaItem(item, fallbackUser = {}) {
+    if (!item) throw new Error('Instagram media item is empty');
+
+    const isCarousel = item.media_type === 8;
+    const isVideo = item.media_type === 2;
+    const isReel = item.product_type === 'clips';
+    const sourceItems = isCarousel ? (item.carousel_media || []) : [item];
+    const carouselItems = [];
+
+    for (const media of sourceItems) {
+      const childIsVideo = media.media_type === 2;
+      const url = childIsVideo
+        ? media.video_versions?.[0]?.url
+        : media.image_versions2?.candidates?.[0]?.url;
+      if (url) carouselItems.push({ type: childIsVideo ? 'video' : 'photo', url });
+    }
+
+    const itemUser = item.user || {};
+    // Keep the feed's existing ID shape for deduplication compatibility.
+    // getMediaInfo() strips the owner suffix only when building its API URL.
+    const mediaPk = String(item.id ?? item.pk ?? '');
+    return {
+      pk: mediaPk,
+      id: String(item.id ?? item.pk ?? mediaPk),
+      type: isCarousel ? 'carousel' : (isReel ? 'reel' : (isVideo ? 'video' : 'photo')),
+      isVideo,
+      isReel,
+      caption: item.caption?.text ?? '',
+      shortcode: item.code,
+      takenAt: item.taken_at,
+      takenAtIso: item.taken_at ? new Date(item.taken_at * 1000).toISOString() : null,
+      mediaUrls: carouselItems.map(media => media.url),
+      carouselItems,
+      likeCount: item.like_count ?? 0,
+      commentCount: item.comment_count ?? 0,
+      viewCount: item.play_count ?? item.view_count ?? null,
+      location: item.location ? { name: item.location.name } : null,
+      usertags: item.usertags?.in?.map(tag => tag.user?.username).filter(Boolean) || [],
+      user: {
+        pk: itemUser.pk ?? fallbackUser.pk,
+        username: itemUser.username ?? fallbackUser.username,
+        fullName: itemUser.full_name ?? fallbackUser.full_name ?? fallbackUser.fullName,
+        profilePicUrl: itemUser.profile_pic_url ?? fallbackUser.profile_pic_url ?? fallbackUser.profilePicUrl,
+        isVerified: itemUser.is_verified ?? fallbackUser.is_verified ?? fallbackUser.isVerified,
+      },
+      music: item.music_metadata?.music_info?.music_asset_info?.title
+        ? { title: item.music_metadata.music_info.music_asset_info.title }
+        : null,
+      hasAudio: item.has_audio ?? isVideo,
+      videoDuration: item.video_duration ?? null,
+    };
+  }
+
+  /**
+   * Fetch the latest counters, caption, and media URLs for one post.
+   */
+  async getMediaInfo(mediaPk) {
+    if (!this.axiosInstance) {
+      throw new Error('No axios instance — session not loaded');
+    }
+
+    const normalizedPk = String(mediaPk || '').split('_')[0];
+    if (!/^\d+$/.test(normalizedPk)) {
+      throw new Error(`Invalid Instagram media PK: ${mediaPk}`);
+    }
+
+    const response = await this.axiosInstance.get(`${IG_API}/media/${normalizedPk}/info/`, {
+      headers: { 'Referer': `${IG_BASE}/` },
+    });
+    this._assertApiResponse(response, 'Instagram media info');
+
+    const item = response.data?.items?.[0];
+    if (!item) throw new Error(`Instagram media ${normalizedPk} was not found`);
+    return this._normalizeMediaItem(item);
   }
 
   /**
@@ -280,6 +362,7 @@ class IgClient {
     const searchRes = await this.axiosInstance.get(searchUrl, {
       headers: { 'Referer': `${IG_BASE}/${username}/` },
     });
+    this._assertApiResponse(searchRes, 'Instagram feed user search');
 
     const users = searchRes.data?.users || [];
     const userMatch = users.find(u => u.user?.username?.toLowerCase() === username.toLowerCase());
@@ -344,68 +427,13 @@ class IgClient {
 
     log.info({ msg: 'feed/user: items found', count: items.length });
 
-    const posts = [];
-    for (const item of items) {
-      if (posts.length >= limit) break;
-
-      const mediaType = item.media_type; // 1=photo, 2=video, 8=carousel
-      const isVideo = mediaType === 2;
-      const isCarousel = mediaType === 8;
-
-      let mediaUrls = [];
-      let carouselItems = [];
-
-      if (isCarousel && item.carousel_media) {
-        for (const child of item.carousel_media) {
-          const childIsVideo = child.media_type === 2;
-          if (childIsVideo && child.video_versions?.length > 0) {
-            mediaUrls.push(child.video_versions[0].url);
-            carouselItems.push({ type: 'video', url: child.video_versions[0].url });
-          } else if (child.image_versions2?.candidates?.length > 0) {
-            mediaUrls.push(child.image_versions2.candidates[0].url);
-            carouselItems.push({ type: 'photo', url: child.image_versions2.candidates[0].url });
-          }
-        }
-      } else if (isVideo && item.video_versions?.length > 0) {
-        mediaUrls.push(item.video_versions[0].url);
-        carouselItems.push({ type: 'video', url: item.video_versions[0].url });
-      } else if (item.image_versions2?.candidates?.length > 0) {
-        mediaUrls.push(item.image_versions2.candidates[0].url);
-        carouselItems.push({ type: 'photo', url: item.image_versions2.candidates[0].url });
-      }
-
-      const caption = item.caption?.text || '';
-
-      posts.push({
-        pk: String(item.id),
-        id: String(item.id),
-        type: isCarousel ? 'carousel' : (isVideo ? 'video' : 'photo'),
-        isVideo,
-        isReel: item.product_type === 'clips',
-        caption,
-        shortcode: item.code,
-        takenAt: item.taken_at,
-        takenAtIso: item.taken_at ? new Date(item.taken_at * 1000).toISOString() : null,
-        mediaUrls,
-        carouselItems,
-        likeCount: item.like_count || 0,
-        commentCount: item.comment_count || 0,
-        viewCount: item.play_count || item.view_count || 0,
-        location: item.location ? { name: item.location.name } : null,
-        user: {
-          pk: userPk,
-          username,
-          fullName: userInfo.full_name,
-          profilePicUrl: userInfo.profile_pic_url,
-          isVerified: userInfo.is_verified,
-        },
-        music: null,
-        hasAudio: isVideo,
-        videoDuration: item.video_duration || null,
-      });
-    }
-
-    return posts;
+    return items
+      .slice(0, limit)
+      .map(item => this._normalizeMediaItem(item, {
+        ...userInfo,
+        pk: userPk,
+        username,
+      }));
   }
 
   /**
@@ -426,6 +454,7 @@ class IgClient {
     const feedRes = await this.axiosInstance.get(graphqlUrl, {
       headers: { 'Referer': `${IG_BASE}/${username}/` },
     });
+    this._assertApiResponse(feedRes, 'Instagram GraphQL feed');
 
     const media = feedRes.data?.data?.user?.edge_owner_to_timeline_media;
     if (!media?.edges) {
@@ -478,9 +507,9 @@ class IgClient {
         takenAtIso: node.taken_at_timestamp ? new Date(node.taken_at_timestamp * 1000).toISOString() : null,
         mediaUrls,
         carouselItems,
-        likeCount: node.edge_media_preview_like?.count || 0,
-        commentCount: node.edge_media_to_comment?.count || 0,
-        viewCount: node.video_view_count || 0,
+        likeCount: node.edge_media_preview_like?.count ?? 0,
+        commentCount: node.edge_media_to_comment?.count ?? 0,
+        viewCount: node.video_view_count ?? null,
         user: { pk: userPk, username, fullName: userInfo.full_name, isVerified: userInfo.is_verified },
         music: null,
         hasAudio: isVideo,
@@ -571,139 +600,6 @@ class IgClient {
     } catch (e) {
       log.warn({ msg: 'Failed to fetch stories', username, error: e.message });
       return [];
-    }
-  }
-
-  /**
-   * Get user highlights — تشخیص هایلایت‌های جدید و حذف شده
-   *
-   * هایلایت‌ها استوری‌های ثابت پروفایل هستن که کاربر میتونه اضافه/حذف کنه.
-   */
-  async getUserHighlights(pkOrUsername) {
-    const username = typeof pkOrUsername === 'string' && !pkOrUsername.match(/^\d+$/)
-      ? pkOrUsername
-      : pkOrUsername;
-
-    log.info({ msg: 'Fetching user highlights', username });
-
-    if (!this.axiosInstance) return [];
-
-    try {
-      // Get user pk first
-      const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
-      const searchRes = await this.axiosInstance.get(searchUrl, {
-        headers: { 'Referer': `${IG_BASE}/` },
-      });
-
-      const users = searchRes.data?.users || [];
-      const userMatch = users.find(u => u.user?.username?.toLowerCase() === username.toLowerCase());
-
-      if (!userMatch?.user?.pk) {
-        log.warn({ msg: 'Cannot find user for highlights', username });
-        return [];
-      }
-
-      const userPk = userMatch.user.pk;
-
-      // Fetch highlights via GraphQL
-      const queryHash = '11bdcdeehas8a4e6a88sh8d8eea8d8c8';  // highlights query
-      const variables = JSON.stringify({
-        user_id: userPk,
-        include_chaining: false,
-        include_reel: false,
-        include_suggested_users: false,
-        include_logged_out_insights: false,
-      });
-
-      const graphqlUrl = `${IG_API}/graphql/query/?query_hash=${queryHash}&variables=${encodeURIComponent(variables)}`;
-
-      let highlights = [];
-
-      try {
-        const res = await this.axiosInstance.get(graphqlUrl, {
-          headers: { 'Referer': `${IG_BASE}/${username}/` },
-        });
-
-        const edges = res.data?.data?.user?.edge_highlight_reels?.edges || [];
-
-        highlights = edges.map(edge => {
-          const node = edge.node;
-          return {
-            id: String(node.id),
-            title: node.title || 'بدون عنوان',
-            itemCount: node.highlight_reel?.item_count || 0,
-            coverUrl: node.cover_media?.thumbnail_url || node.cover_media?.url || null,
-            takenAt: node.latest_reel_media || 0,
-            isNew: false,
-            isDeleted: false,
-          };
-        });
-      } catch (e) {
-        log.warn({ msg: 'GraphQL highlights failed, trying feed endpoint', error: e.message });
-
-        // Fallback: try feed/user/{pk}/highlight endpoint
-        try {
-          const res = await this.axiosInstance.get(`${IG_API}/feed/user/${userPk}/highlight/`, {
-            headers: { 'Referer': `${IG_BASE}/${username}/` },
-          });
-
-          if (res.data?.items) {
-            highlights = res.data.items.map(item => ({
-              id: String(item.id),
-              title: item.title || 'بدون عنوان',
-              itemCount: item.item_count || 0,
-              coverUrl: item.cover_media?.thumbnail_url || null,
-              takenAt: item.latest_reel_media || 0,
-              isNew: false,
-              isDeleted: false,
-            }));
-          }
-        } catch (e2) {
-          log.warn({ msg: 'Highlights feed endpoint also failed', error: e2.message });
-        }
-      }
-
-      log.info({ msg: 'Highlights fetched', count: highlights.length, username });
-      return highlights;
-    } catch (e) {
-      log.warn({ msg: 'Failed to fetch highlights', username, error: e.message });
-      return [];
-    }
-  }
-
-  /**
-   * Check if a post has been edited or deleted
-   * با مقایسه caption و وجود پست با استفاده از media/info endpoint
-   */
-  async checkPostStatus(shortcode, originalCaption) {
-    if (!this.axiosInstance || !shortcode) {
-      return { isEdited: false, isDeleted: false };
-    }
-
-    try {
-      // Try to get media info
-      const res = await this.axiosInstance.get(`${IG_API}/media/${shortcode}/info/`, {
-        headers: { 'Referer': `${IG_BASE}/p/${shortcode}/` },
-      });
-
-      if (res.status === 404 || !res.data?.items?.length) {
-        return { isEdited: false, isDeleted: true };
-      }
-
-      const item = res.data.items[0];
-      const currentCaption = item.caption?.text || '';
-
-      if (originalCaption && currentCaption !== originalCaption) {
-        return { isEdited: true, isDeleted: false, newCaption: currentCaption };
-      }
-
-      return { isEdited: false, isDeleted: false };
-    } catch (e) {
-      if (e.response?.status === 404) {
-        return { isEdited: false, isDeleted: true };
-      }
-      log.debug({ msg: 'Could not check post status', shortcode, error: e.message });
-      return { isEdited: false, isDeleted: false };
     }
   }
 
