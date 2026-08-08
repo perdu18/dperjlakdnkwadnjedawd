@@ -12,7 +12,7 @@ import { randomDelay, containsKeyword, extractHashtags } from '../utils/Helpers.
 import { logEvent, incrementDailyStat } from '../database/db.js';
 import TrackedAccountsRepository from '../database/TrackedAccountsRepository.js';
 import SentItemsRepository from '../database/SentItemsRepository.js';
-import igClient from '../instagram/IgClient.js';
+import igClient, { InstagramCooldownError } from '../instagram/IgClient.js';
 
 import sendWorker from './SendWorker.js';
 
@@ -57,31 +57,39 @@ class PollingWorker {
     log.info('Polling workers stopped');
   }
 
-  _schedulePoll(kind, delayMs = null) {
-    if (!this.isRunning) return;
-    const isPosts = kind === 'posts';
-    const intervalSeconds = isPosts
-      ? config.monitoring.pollIntervalPosts
-      : config.monitoring.pollIntervalStories;
-    const jitter = Math.max(0, Math.min(50, config.antiDetect.scheduleJitterPercent));
-    const factor = 1 + ((Math.random() * 2 - 1) * jitter / 100);
-    const nextDelay = delayMs ?? Math.max(15_000, Math.round(intervalSeconds * 1000 * factor));
+_schedulePoll(kind, delayMs = null) {
+  if (!this.isRunning) return;
+  const isPosts = kind === 'posts';
+  const intervalSeconds = isPosts
+    ? config.monitoring.pollIntervalPosts
+    : config.monitoring.pollIntervalStories;
+  const jitter = Math.max(0, Math.min(50, config.antiDetect.scheduleJitterPercent));
+  const factor = 1 + ((Math.random() * 2 - 1) * jitter / 100);
+  let nextDelay = delayMs ?? Math.max(15_000, Math.round(intervalSeconds * 1000 * factor));
 
-    const timer = setTimeout(async () => {
-      try {
-        if (isPosts) await this.pollPosts();
-        else await this.pollStories();
-      } catch (e) {
-        log.error({ msg: `Scheduled ${kind} poll failed`, error: e.message });
-      } finally {
-        this._schedulePoll(kind);
-      }
-    }, nextDelay);
-
-    if (isPosts) this.postTimer = timer;
-    else this.storyTimer = timer;
+  // FIX: تا وقتی cooldown اینستاگرام فعال است اصلاً poll نکن.
+  // قبلاً درخواست‌ها زیر قفل mutex تا ۱۵ دقیقه sleep می‌کردند و بعد یک‌جا
+  // شلیک می‌شدند که بلافاصله 429 بعدی را می‌ساخت.
+  const cooldownMs = igClient.getCooldownRemainingMs?.() ?? 0;
+  if (delayMs === null && cooldownMs > 0) {
+    nextDelay = Math.max(nextDelay, cooldownMs + 5_000 + Math.floor(Math.random() * 10_000));
+    log.warn({ msg: 'Instagram cooldown active; postponing poll', kind, nextDelayMs: nextDelay });
   }
 
+  const timer = setTimeout(async () => {
+    try {
+      if (isPosts) await this.pollPosts();
+      else await this.pollStories();
+    } catch (e) {
+      log.error({ msg: `Scheduled ${kind} poll failed`, error: e.message });
+    } finally {
+      this._schedulePoll(kind);
+    }
+  }, nextDelay);
+
+  if (isPosts) this.postTimer = timer;
+  else this.storyTimer = timer;
+}
   /**
    * Poll posts for all active accounts
    */
@@ -90,6 +98,11 @@ class PollingWorker {
     this.isPollingPosts = true;
 
     try {
+		if (igClient.isCoolingDown?.()) {
+  log.warn({ msg: 'Skipping poll cycle — Instagram cooldown active',
+             remainingMs: igClient.getCooldownRemainingMs() });
+  return;
+}
       const accounts = TrackedAccountsRepository.getAllActive();
       if (accounts.length === 0) {
         log.debug('No active accounts to poll for posts');
@@ -104,6 +117,11 @@ class PollingWorker {
           // Random delay between accounts
           await randomDelay(config.antiDetect.requestDelayMin, config.antiDetect.requestDelayMax);
         } catch (e) {
+			 if (e instanceof InstagramCooldownError) {
+    log.warn({ msg: 'Cooldown hit mid-cycle; aborting remaining accounts',
+               username: account.username, error: e.message });
+    break;
+  }
           log.error({ msg: 'Failed to poll posts for account', username: account.username, error: e.message });
           TrackedAccountsRepository.recordError(account.username, e.message);
           logEvent('error', 'PollingWorker', `Failed to poll posts for @${account.username}`, { error: e.message });
@@ -156,7 +174,10 @@ class PollingWorker {
     // Refresh profile statistics on every poll so queued jobs carry current data.
     log.info({ msg: 'Refreshing user info for account', username: account.username, hasPk: !!account.pk });
     try {
-      const info = await igClient.getUserByUsername(account.username);
+     const info = await igClient.getUserByUsername(account.username, {
+  force: false,               // FIX: از کش استفاده کن، هر سیکل یک درخواست اضافه نزن
+  knownPk: account.pk || null,
+});
 
       TrackedAccountsRepository.updateProfile(account.username, info);
       Object.assign(account, {
@@ -202,9 +223,10 @@ class PollingWorker {
     let recentPosts;
     try {
       recentPosts = await igClient.getUserFeed(account.username, {
-        limit: Math.max(5, Math.min(50, config.monitoring.feedFetchLimit)),
-        afterPk: account.last_post_pk,
-      });
+  limit: Math.max(5, Math.min(50, config.monitoring.feedFetchLimit)),
+  afterPk: account.last_post_pk,
+  userPk: account.pk || null,   // FIX: دیگر لازم نیست topsearch بزنیم
+});
     } catch (e) {
       log.error({ msg: 'Failed to fetch feed', username: account.username, error: e.message });
       TrackedAccountsRepository.recordError(account.username, `getUserFeed: ${e.message}`);
@@ -360,12 +382,13 @@ class PollingWorker {
    * Poll stories for one account
    */
   async _pollStoriesForAccount(account) {
+	  
     log.info({ msg: 'Polling stories for account', username: account.username });
 
     // Use username directly (new API doesn't need pk for stories)
     let stories;
     try {
-      stories = await igClient.getUserStories(account.username);
+     stories = await igClient.getUserStories(account.username, { userPk: account.pk || null });
     } catch (e) {
       log.error({ msg: 'Failed to fetch stories', username: account.username, error: e.message });
       TrackedAccountsRepository.recordError(account.username, `getUserStories: ${e.message}`);

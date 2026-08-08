@@ -20,6 +20,7 @@ import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 import config from '../config/env.js';
+import proxyManager from '../proxy/ProxyManager.js';   // FIX: استفاده می‌شد ولی import نشده بود
 import { tgLogger as log } from '../utils/Logger.js';
 import { retryTgRequest } from '../utils/Retry.js';
 
@@ -419,86 +420,128 @@ class TgClient {
    *
    * Cached برای کارایی: بعد از اولین resolve، entity رو در حافظه نگه می‌داریم.
    */
-  async resolveChannel() {
-    // Return cached entity
-    if (this._cachedChannelEntity) {
-      return this._cachedChannelEntity;
-    }
+/**
+ * FIX ها:
+ *  - BigInt محاسبه می‌شد و اصلاً استفاده نمی‌شد؛ حالا واقعاً به‌کار می‌رود
+ *  - طبق MTProto اگر peer در کش/دیالوگ‌ها نباشد getInputEntity خطا می‌دهد،
+ *    پس ابتدا با getEntity (contacts.resolveUsername) رزولوِ می‌کنیم و در
+ *    نهایت دیالوگ‌ها را warm-up می‌کنیم
+ *  - نتیجه‌ی ناموفق دیگر کش نمی‌شود
+ */
+async resolveChannel() {
+  if (this._cachedChannelEntity) return this._cachedChannelEntity;
 
-    const channelId = config.telegram.channelId;
-    const channelUsername = config.telegram.channelUsername;
+  const channelId = config.telegram.channelId;
+  const channelUsername = config.telegram.channelUsername;
 
-    log.info({
-      msg: 'Resolving Telegram channel entity',
-      channelId: channelId ? channelId.slice(0, 20) + '...' : null,
-      channelUsername,
-    });
+  log.info({ msg: 'Resolving Telegram channel entity', hasId: !!channelId, channelUsername });
 
+  const candidates = [];
+  if (channelUsername) candidates.push(channelUsername.replace('@', ''));
+  if (channelId) {
+    // -100XXXXXXXXXX  =>  channel id واقعی
+    const raw = channelId.startsWith('-100') ? channelId.slice(4) : channelId.replace('-', '');
+    try { candidates.push(BigInt(raw)); } catch { /* ignore */ }
+    candidates.push(channelId);
+  }
+  if (candidates.length === 0) {
+    throw new Error('No channel specified (TG_CHANNEL_ID or TG_CHANNEL_USERNAME)');
+  }
+
+  let lastError = null;
+  for (const candidate of candidates) {
     try {
-      let entity;
-
-      if (channelId) {
-        // channelId can be -100... format or just a number
-        const id = channelId.startsWith('-100')
-          ? BigInt(channelId.slice(4))
-          : BigInt(channelId);
-
-        try {
-          entity = await this.client.getInputEntity(channelId);
-        } catch {
-          // Try fetching via username instead
-          if (channelUsername) {
-            entity = await this.client.getInputEntity(channelUsername);
-          } else {
-            throw new Error('Cannot resolve channel entity');
-          }
-        }
-      } else if (channelUsername) {
-        const username = channelUsername.replace('@', '');
-        entity = await this.client.getInputEntity(username);
-      } else {
-        throw new Error('No channel specified (TG_CHANNEL_ID or TG_CHANNEL_USERNAME)');
-      }
-
+      const entity = await this.client.getEntity(candidate);
+      this._cachedChannelEntity = entity;
       log.info({ msg: 'Channel resolved', entityId: entity.id?.toString() });
-      this._cachedChannelEntity = entity;  // Cache for future use
       return entity;
     } catch (e) {
-      log.error({ msg: 'Could not resolve channel', channelId, channelUsername, error: e.message });
-      throw e;
+      lastError = e;
+      log.debug({ msg: 'Channel candidate failed', candidate: String(candidate), error: e.message });
     }
   }
 
+  // آخرین تلاش: دیالوگ‌ها را بخوان تا کش entity پر شود (الزام MTProto)
+  try {
+    log.warn('Channel not in entity cache — warming up dialogs');
+    const targetId = channelId
+      ? BigInt(channelId.startsWith('-100') ? channelId.slice(4) : channelId.replace('-', ''))
+      : null;
+    const dialogs = await this.client.getDialogs({ limit: 200 });
+    for (const dialog of dialogs) {
+      const id = dialog.entity?.id?.toString?.();
+      const uname = dialog.entity?.username?.toLowerCase?.();
+      if ((targetId && id === targetId.toString())
+        || (channelUsername && uname === channelUsername.replace('@', '').toLowerCase())) {
+        this._cachedChannelEntity = dialog.entity;
+        log.info({ msg: 'Channel resolved via dialogs', entityId: id });
+        return dialog.entity;
+      }
+    }
+  } catch (e) {
+    lastError = e;
+  }
+
+  log.error({ msg: 'Could not resolve channel', channelId, channelUsername, error: lastError?.message });
+  throw lastError || new Error('Cannot resolve channel entity');
+}
   /**
    * Send a text message
    */
-  async sendMessage(text, options = {}) {
-    const entity = await this.resolveChannel();
+/**
+ * FIX: طبق core.telegram.org سقف متن پیام 4096 کاراکتر UTF-16 است.
+ * قبلاً پست بدون مدیا با کپشن بلند MESSAGE_TOO_LONG می‌گرفت و job fail می‌شد.
+ */
+async sendMessage(text, options = {}) {
+  const entity = await this.resolveChannel();
+  const chunks = this._splitMessage(String(text ?? ''), 4096);
+  const sent = [];
+  let replyTo = options.replyTo;
 
+  for (const chunk of chunks) {
     try {
       const result = await this.client.sendMessage(entity, {
-        message: text,
+        message: chunk,
         parseMode: 'html',
         linkPreview: options.linkPreview ?? false,
         ...options,
+        ...(replyTo ? { replyTo } : {}),
       });
-
-      return {
+      const info = {
         id: result.id,
         chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
       };
+      sent.push(info);
+      if (!options.replyTo) replyTo = info.id; // بقیه تکه‌ها به تکه‌ی اول reply شوند
     } catch (e) {
       log.error({
         msg: 'sendMessage failed',
-        error: e.message,
-        errorMessage: e.errorMessage,
-        textLength: text?.length,
-        textPreview: text?.slice(0, 100),
+        error: e.message, errorMessage: e.errorMessage,
+        textLength: chunk?.length, textPreview: chunk?.slice(0, 100),
       });
       throw e;
     }
   }
 
+  return sent.length === 1 ? sent[0] : sent;
+}
+
+/** تقسیم امن متن HTML روی مرز خط تا تگ‌ها نصف نشوند */
+_splitMessage(text, maxLength = 4096) {
+  if (text.length <= maxLength) return [text];
+  const chunks = [];
+  let current = '';
+  for (const line of text.split('\n')) {
+    if ((current + '\n' + line).length > maxLength) {
+      if (current) chunks.push(current);
+      current = line.length > maxLength ? line.slice(0, maxLength) : line;
+    } else {
+      current = current ? `${current}\n${line}` : line;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
   /**
    * Send a file (photo/video/document)
    */

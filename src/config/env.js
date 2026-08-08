@@ -88,14 +88,14 @@ const config = {
   },
 
   // Monitoring
-  monitoring: {
-    targetAccounts: getList('TARGET_ACCOUNTS'),
-    pollIntervalPosts: getInt('POLL_INTERVAL_POSTS', 180),
-    pollIntervalStories: getInt('POLL_INTERVAL_STORIES', 240),
-    feedFetchLimit: getInt('FEED_FETCH_LIMIT', 12),
-    keywordFilter: getList('KEYWORD_FILTER'),
-    hashtagFilter: getList('HASHTAG_FILTER'),
-  },
+monitoring: {
+  targetAccounts: getList('TARGET_ACCOUNTS'),
+  pollIntervalPosts: getInt('POLL_INTERVAL_POSTS', 300),      // FIX: 180 -> 300
+  pollIntervalStories: getInt('POLL_INTERVAL_STORIES', 420),  // FIX: 240 -> 420
+  feedFetchLimit: getInt('FEED_FETCH_LIMIT', 12),
+  keywordFilter: getList('KEYWORD_FILTER'),
+  hashtagFilter: getList('HASHTAG_FILTER'),
+},
 
   // Proxy
   proxy: {
@@ -124,16 +124,17 @@ const config = {
   },
 
   // Anti-detection
-  antiDetect: {
-    requestDelayMin: getInt('REQUEST_DELAY_MIN', 2000),
-    requestDelayMax: getInt('REQUEST_DELAY_MAX', 5000),
-    rotateUserAgent: getBool('ROTATE_USER_AGENT', false),
-    logoutAfterRequest: getBool('LOGOUT_AFTER_REQUEST', false),
-    rateLimitCooldown: getInt('IG_RATE_LIMIT_COOLDOWN', 15 * 60),
-    challengeCooldown: getInt('IG_CHALLENGE_COOLDOWN', 60 * 60),
-    reconnectInterval: getInt('IG_RECONNECT_INTERVAL', 10 * 60),
-    scheduleJitterPercent: getInt('SCHEDULE_JITTER_PERCENT', 15),
-  },
+antiDetect: {
+  requestDelayMin: getInt('REQUEST_DELAY_MIN', 3000),   // FIX: 2000 -> 3000
+  requestDelayMax: getInt('REQUEST_DELAY_MAX', 7000),   // FIX: 5000 -> 7000
+  rotateUserAgent: getBool('ROTATE_USER_AGENT', false),
+  logoutAfterRequest: getBool('LOGOUT_AFTER_REQUEST', false),
+  rateLimitCooldown: getInt('IG_RATE_LIMIT_COOLDOWN', 15 * 60),
+  challengeCooldown: getInt('IG_CHALLENGE_COOLDOWN', 60 * 60),
+  reconnectInterval: getInt('IG_RECONNECT_INTERVAL', 10 * 60),
+  scheduleJitterPercent: getInt('SCHEDULE_JITTER_PERCENT', 15),
+  profileCacheTtl: getInt('IG_PROFILE_CACHE_TTL', 600),  // FIX: کلید جدید (ثانیه)
+},
 
   // Logging
   logging: {

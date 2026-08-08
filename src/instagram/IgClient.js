@@ -32,6 +32,27 @@ const IG_API = 'https://www.instagram.com/api/v1';
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const IG_APP_ID = '936619743392459';
 
+
+// حداکثر زمانی که اجازه داریم یک درخواست را in-line نگه داریم.
+// قبلاً تا 900 ثانیه صبر می‌کرد و آن هم زیر قفل postMutex -> فریز کامل poller.
+const MAX_INLINE_WAIT_MS = 60_000;
+
+export class InstagramCooldownError extends Error {
+  constructor(remainingMs, reason) {
+    super(`Instagram cooldown active for ${Math.ceil(remainingMs / 1000)}s (${reason || 'unknown'})`);
+    this.name = 'InstagramCooldownError';
+    this.remainingMs = remainingMs;
+    this.reason = reason;
+  }
+}
+
+export class InstagramAuthError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'InstagramAuthError';
+  }
+}
+
 class IgClient {
   constructor() {
     this.session = null;
@@ -238,55 +259,79 @@ class IgClient {
     }
   }
 
-  async _paceRequest() {
-    const gate = this._requestGate.then(async () => {
-      const waitUntil = Math.max(this._nextRequestAt, this._cooldownUntil);
-      const waitMs = Math.max(0, waitUntil - Date.now());
-      if (waitMs > 0) {
-        log.debug({
-          msg: 'Pacing Instagram request',
-          waitMs,
-          cooldownReason: this._cooldownReason,
-        });
-        await sleep(waitMs);
-      }
-
-      const min = Math.max(500, config.antiDetect.requestDelayMin);
-      const max = Math.max(min, config.antiDetect.requestDelayMax);
-      this._nextRequestAt = Date.now() + min + Math.floor(Math.random() * (max - min + 1));
-      if (this._cooldownUntil <= Date.now()) this._cooldownReason = null;
-    });
-    this._requestGate = gate.catch(() => {});
-    await gate;
+async _paceRequest() {
+  // اگر cooldown طولانی فعال است، به‌جای خوابیدنِ چنددقیقه‌ای زیر قفل، سریع fail کن
+  const cooldownRemaining = this._cooldownUntil - Date.now();
+  if (cooldownRemaining > MAX_INLINE_WAIT_MS) {
+    throw new InstagramCooldownError(cooldownRemaining, this._cooldownReason);
   }
 
-  _applySafetyCooldown(status, data, headers = {}) {
-    const message = String(data?.message || data?.error_type || '').toLowerCase();
-    const redirectLocation = String(headers?.location || '').toLowerCase();
-    const authRejected = status === 401
-      || status === 403
-      || message.includes('login_required')
-      || redirectLocation.includes('/accounts/login');
-    if (authRejected) {
-      this._markSessionInvalid(message || `HTTP ${status}`);
-    }
-    let seconds = 0;
-    let reason = null;
-
-    if (status === 429 || message.includes('feedback_required') || message.includes('spam')) {
-      seconds = config.antiDetect.rateLimitCooldown;
-      reason = status === 429 ? 'HTTP 429' : message;
-    } else if (message.includes('challenge_required') || message.includes('checkpoint_required')) {
-      seconds = config.antiDetect.challengeCooldown;
-      reason = message;
+  const gate = this._requestGate.then(async () => {
+    const waitUntil = Math.max(this._nextRequestAt, this._cooldownUntil);
+    const waitMs = Math.min(MAX_INLINE_WAIT_MS, Math.max(0, waitUntil - Date.now()));
+    if (waitMs > 0) {
+      log.debug({ msg: 'Pacing Instagram request', waitMs, cooldownReason: this._cooldownReason });
+      await sleep(waitMs);
     }
 
-    if (seconds > 0) {
-      this._cooldownUntil = Math.max(this._cooldownUntil, Date.now() + seconds * 1000);
+    const min = Math.max(500, config.antiDetect.requestDelayMin);
+    const max = Math.max(min, config.antiDetect.requestDelayMax);
+    this._nextRequestAt = Date.now() + min + Math.floor(Math.random() * (max - min + 1));
+    if (this._cooldownUntil <= Date.now()) this._cooldownReason = null;
+  });
+  this._requestGate = gate.catch(() => {});
+  await gate;
+}
+
+/** آیا الان در cooldown هستیم؟ (برای Worker) */
+isCoolingDown() {
+  return this._cooldownUntil > Date.now();
+}
+
+getCooldownRemainingMs() {
+  return Math.max(0, this._cooldownUntil - Date.now());
+}
+
+_applySafetyCooldown(status, data, headers = {}) {
+  if (!status) return;
+  const message = String(data?.message || data?.error_type || '').toLowerCase();
+  const redirectLocation = String(headers?.location || '').toLowerCase();
+  const isRedirect = status >= 300 && status < 400;
+
+  const authRejected = status === 401
+    || status === 403
+    || message.includes('login_required')
+    || (isRedirect && redirectLocation.includes('/accounts/login'));
+  if (authRejected) this._markSessionInvalid(message || `HTTP ${status}`);
+
+  let seconds = 0;
+  let reason = null;
+
+  if (status === 429 || message.includes('feedback_required') || message.includes('spam')) {
+    // احترام به هدر رسمی Retry-After در صورت وجود
+    const retryAfter = parseInt(headers?.['retry-after'] ?? headers?.['Retry-After'] ?? '', 10);
+    seconds = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter
+      : config.antiDetect.rateLimitCooldown;
+    reason = status === 429 ? 'HTTP 429' : message;
+  } else if (message.includes('challenge_required') || message.includes('checkpoint_required')) {
+    seconds = config.antiDetect.challengeCooldown;
+    reason = message;
+  }
+
+  if (seconds > 0) {
+    const nextUntil = Date.now() + seconds * 1000;
+    // FIX: 429 های پشت‌سرهمِ یک burst نباید cooldown را روی هم انباشته کنند
+    if (nextUntil > this._cooldownUntil + 5_000) {
+      this._cooldownUntil = nextUntil;
       this._cooldownReason = reason;
       log.warn({ msg: 'Instagram safety cooldown activated', reason, seconds });
+    } else {
+      log.debug({ msg: 'Instagram cooldown already active; not extending', reason });
     }
   }
+}
+
 
   _markSessionInvalid(reason) {
     const wasLoggedIn = this.isLoggedIn;
@@ -367,22 +412,41 @@ class IgClient {
     return false;
   }
 
-  _assertApiResponse(response, context) {
-    const status = response?.status;
-    const data = response?.data;
-    const apiMessage = data?.message || data?.error_type;
-    if (status !== 200 || data?.status === 'fail' || apiMessage === 'login_required') {
-      throw new Error(`${context} failed (${status || 'no status'}${apiMessage ? `: ${apiMessage}` : ''})`);
+_assertApiResponse(response, context) {
+  const status = response?.status;
+  const data = response?.data;
+  const apiMessage = data?.message || data?.error_type;
+
+  // FIX ریشه‌ایِ خطای «Instagram user search failed (302)»
+  // axios با maxRedirects:0 ساخته شده، پس 3xx مثل یک پاسخ عادی برمی‌گردد.
+  if (status >= 300 && status < 400) {
+    const location = String(response?.headers?.location || '');
+    if (location.includes('/accounts/login')) {
+      throw new InstagramAuthError(
+        `${context} redirected to login (session not accepted for this endpoint)`
+      );
     }
+    throw new Error(`${context} returned redirect ${status}${location ? ` -> ${location}` : ''}`);
   }
 
-  async _getWebProfile(username, { force = false } = {}) {
-    const key = username.toLowerCase();
-    const cached = this._profileCache.get(key);
-    if (!force && cached && Date.now() - cached.fetchedAt < 60_000) {
-      return cached.user;
-    }
+  if (status === 429) {
+    throw new InstagramCooldownError(this.getCooldownRemainingMs() || 60_000, 'HTTP 429');
+  }
 
+  if (status !== 200 || data?.status === 'fail' || apiMessage === 'login_required') {
+    throw new Error(`${context} failed (${status || 'no status'}${apiMessage ? `: ${apiMessage}` : ''})`);
+  }
+}
+
+async _getWebProfile(username, { force = false } = {}) {
+  const key = username.toLowerCase();
+  const cached = this._profileCache.get(key);
+  const ttlMs = Math.max(60, config.antiDetect.profileCacheTtl) * 1000;
+  if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
+    return cached.user;
+  }
+
+  try {
     const response = await this.axiosInstance.get(`${IG_API}/users/web_profile_info/`, {
       params: { username },
       headers: { 'Referer': `${IG_BASE}/${encodeURIComponent(username)}/` },
@@ -393,7 +457,15 @@ class IgClient {
 
     this._profileCache.set(key, { user, fetchedAt: Date.now() });
     return user;
+  } catch (e) {
+    // FIX: در 429/302 به‌جای شکست کامل، از نسخه‌ی stale کش استفاده کن
+    if (cached) {
+      log.warn({ msg: 'Using stale cached profile', username, error: e.message });
+      return cached.user;
+    }
+    throw e;
   }
+}
 
   _normalizeWebProfileUser(user) {
     return {
@@ -414,74 +486,56 @@ class IgClient {
    * Get current profile details. The web profile endpoint is preferred because
    * it returns profile counters and the same timeline visible on instagram.com.
    */
-  async getUserByUsername(username, options = {}) {
-    const { force = true } = options;
-    log.info({ msg: 'Fetching user info', username, force });
 
-    if (!this.axiosInstance) {
-      throw new Error('No axios instance — session not loaded');
-    }
+/**
+ * FIX ها:
+ *  - force پیش‌فرض به false تغییر کرد (قبلاً true بود و کش را بی‌اثر می‌کرد)
+ *  - fallback به /web/search/topsearch/ حذف شد؛ آن endpoint امروز 302 به
+ *    /accounts/login می‌دهد و فقط سهمیه‌ی rate limit را می‌سوزاند.
+ *    به‌جایش اگر pk را می‌دانیم مستقیم /users/{pk}/info/ می‌زنیم.
+ */
+async getUserByUsername(username, options = {}) {
+  const { force = false, knownPk = null } = options;
+  log.info({ msg: 'Fetching user info', username, force, hasKnownPk: !!knownPk });
 
-    try {
-      const webUser = await this._getWebProfile(username, { force });
-      return this._normalizeWebProfileUser(webUser);
-    } catch (e) {
-      log.warn({
-        msg: 'Web profile lookup failed; falling back to private API search',
-        username,
-        error: e.message,
-      });
-    }
+  if (!this.axiosInstance) throw new Error('No axios instance — session not loaded');
 
-    const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
-    const res = await this.axiosInstance.get(searchUrl, {
-      headers: { 'Referer': `${IG_BASE}/` },
-    });
-    this._assertApiResponse(res, 'Instagram user search');
-
-    const users = res.data?.users || [];
-    const match = users.find(entry =>
-      entry.user?.username?.toLowerCase() === username.toLowerCase());
-    if (!match?.user) {
-      throw new Error(`User @${username} not found`);
-    }
-
-    const searchUser = match.user;
-    let detailedUser = {};
-    if (searchUser.pk) {
-      try {
-        const infoRes = await this.axiosInstance.get(`${IG_API}/users/${searchUser.pk}/info/`, {
-          headers: { 'Referer': `${IG_BASE}/${username}/` },
-        });
-        this._assertApiResponse(infoRes, 'Instagram user info');
-        detailedUser = infoRes.data?.user || {};
-      } catch (e) {
-        const hasSearchCounters = searchUser.follower_count != null
-          && searchUser.following_count != null
-          && searchUser.media_count != null;
-        if (!hasSearchCounters) throw e;
-        log.warn({
-          msg: 'Detailed profile request failed; using complete search data',
-          username,
-          error: e.message,
-        });
-      }
-    }
-
-    const user = { ...searchUser, ...detailedUser };
-    return {
-      pk: user.pk,
-      username: user.username,
-      fullName: user.full_name,
-      isPrivate: user.is_private,
-      isVerified: user.is_verified,
-      profilePicUrl: user.profile_pic_url_hd || user.profile_pic_url,
-      followerCount: user.follower_count ?? 0,
-      followingCount: user.following_count ?? 0,
-      mediaCount: user.media_count ?? 0,
-      biography: user.biography ?? null,
-    };
+  let webError = null;
+  try {
+    const webUser = await this._getWebProfile(username, { force });
+    return this._normalizeWebProfileUser(webUser);
+  } catch (e) {
+    webError = e;
+    if (e instanceof InstagramCooldownError || e instanceof InstagramAuthError) throw e;
+    log.warn({ msg: 'Web profile lookup failed; trying private user info', username, error: e.message });
   }
+
+  if (!knownPk) {
+    throw new Error(`Instagram profile lookup failed for @${username}: ${webError?.message}`);
+  }
+
+  const infoRes = await this.axiosInstance.get(`${IG_API}/users/${encodeURIComponent(knownPk)}/info/`, {
+    headers: { 'Referer': `${IG_BASE}/${encodeURIComponent(username)}/` },
+  });
+  this._assertApiResponse(infoRes, 'Instagram user info');
+  const user = infoRes.data?.user;
+  if (!user) throw new Error(`Instagram user info for @${username} is empty`);
+
+  return {
+    pk: user.pk ?? knownPk,
+    username: user.username ?? username,
+    fullName: user.full_name,
+    isPrivate: user.is_private,
+    isVerified: user.is_verified,
+    profilePicUrl: user.profile_pic_url_hd || user.profile_pic_url,
+    followerCount: user.follower_count ?? 0,
+    followingCount: user.following_count ?? 0,
+    mediaCount: user.media_count ?? 0,
+    biography: user.biography ?? null,
+  };
+}
+
+
 
   _normalizeMediaItem(item, fallbackUser = {}) {
     if (!item) throw new Error('Instagram media item is empty');
@@ -638,85 +692,94 @@ class IgClient {
    *   2. feed/user/{pk}/ private endpoint
    *   3. legacy GraphQL query as a last-resort compatibility fallback
    */
-  async getUserFeed(pkOrUsername, options = {}) {
-    const { limit = 10, afterPk = null } = options;
-    const username = String(pkOrUsername);
-    const canonicalAfterPk = String(afterPk || '').split('_')[0];
-    const errors = [];
-    let successfulSource = false;
-    let webPosts = [];
+/**
+ * ترتیب کشف:
+ *   1. web_profile_info timeline
+ *   2. feed/user/{pk}/  (با pk کش‌شده — دیگر topsearch صدا زده نمی‌شود)
+ *   3. GraphQL legacy
+ *
+ * FIX اصلی: قبلاً برای پیدا کردن pk حتماً topsearch زده می‌شد و چون آن 302/429
+ * می‌داد، مسیر ۲ و ۳ هرگز اجرا نمی‌شدند و پست جدید کشف نمی‌شد.
+ */
+async getUserFeed(pkOrUsername, options = {}) {
+  const { limit = 10, afterPk = null, userPk = null } = options;
+  const username = String(pkOrUsername);
+  const canonicalAfterPk = String(afterPk || '').split('_')[0];
+  const errors = [];
+  let successfulSource = false;
+  let webPosts = [];
+  let resolvedPk = userPk || null;
+  let userInfo = {};
 
-    log.info({ msg: 'Fetching user feed', username, limit, afterPk });
-    if (!this.axiosInstance) throw new Error('No axios instance — session not loaded');
+  log.info({ msg: 'Fetching user feed', username, limit, afterPk, userPk: resolvedPk });
+  if (!this.axiosInstance) throw new Error('No axios instance — session not loaded');
 
-    try {
-      webPosts = await this._getFeedViaWebProfile(username, limit);
+  try {
+    const webUser = await this._getWebProfile(username);
+    userInfo = webUser;
+    resolvedPk = resolvedPk || webUser.id || webUser.pk;
+
+    const edges = webUser.edge_owner_to_timeline_media?.edges;
+    if (Array.isArray(edges)) {
+      webPosts = this._sortAndDedupePosts(
+        edges.map(edge => ({ ...this._normalizeGraphNode(edge.node, webUser), source: 'web_profile_info' })),
+        limit
+      );
       successfulSource = true;
-      const containsWatermark = canonicalAfterPk && webPosts.some(post =>
-        String(post.pk).split('_')[0] === canonicalAfterPk);
+      const containsWatermark = canonicalAfterPk && webPosts.some(p =>
+        String(p.pk).split('_')[0] === canonicalAfterPk);
       if (webPosts.length > 0 && (!canonicalAfterPk || containsWatermark)) {
         log.info({ msg: 'Feed fetched via web profile endpoint', username, count: webPosts.length });
         return webPosts;
       }
       log.warn({
         msg: 'Web timeline needs private-feed recovery',
-        username,
-        count: webPosts.length,
-        watermarkFound: containsWatermark,
+        username, count: webPosts.length, watermarkFound: containsWatermark,
       });
-    } catch (e) {
-      errors.push(`web_profile_info: ${e.message}`);
-      log.warn({ msg: 'Web profile feed failed; trying private feed', username, error: e.message });
+    } else {
+      errors.push('web_profile_info: no timeline edges');
     }
-
-    let userMatch;
-    try {
-      const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
-      const searchRes = await this.axiosInstance.get(searchUrl, {
-        headers: { 'Referer': `${IG_BASE}/${username}/` },
-      });
-      this._assertApiResponse(searchRes, 'Instagram feed user search');
-      userMatch = (searchRes.data?.users || []).find(entry =>
-        entry.user?.username?.toLowerCase() === username.toLowerCase());
-      if (!userMatch?.user) throw new Error(`User @${username} not found`);
-    } catch (e) {
-      errors.push(`user_search: ${e.message}`);
-    }
-
-    if (userMatch?.user) {
-      const userPk = userMatch.user.pk;
-      try {
-        const privatePosts = await this._getFeedViaUserEndpoint(
-          userPk,
-          username,
-          Math.max(limit, canonicalAfterPk ? 50 : limit),
-          userMatch.user,
-          canonicalAfterPk
-        );
-        successfulSource = true;
-        const merged = this._sortAndDedupePosts([...webPosts, ...privatePosts], 50);
-        if (merged.length > 0) {
-          log.info({ msg: 'Feed recovered via private endpoint', username, count: merged.length });
-          return merged;
-        }
-      } catch (e) {
-        errors.push(`private_feed: ${e.message}`);
-        log.warn({ msg: 'Private user feed failed', username, error: e.message });
-      }
-
-      try {
-        const graphqlPosts = await this._getFeedViaGraphQL(userPk, username, limit, userMatch.user);
-        successfulSource = true;
-        const merged = this._sortAndDedupePosts([...webPosts, ...graphqlPosts], 50);
-        if (merged.length > 0) return merged;
-      } catch (e) {
-        errors.push(`legacy_graphql: ${e.message}`);
-      }
-    }
-
-    if (successfulSource) return this._sortAndDedupePosts(webPosts, 50);
-    throw new Error(`All Instagram feed sources failed for @${username}: ${errors.join(' | ')}`);
+  } catch (e) {
+    if (e instanceof InstagramCooldownError) throw e;
+    errors.push(`web_profile_info: ${e.message}`);
+    log.warn({ msg: 'Web profile feed failed; trying private feed', username, error: e.message });
   }
+
+  if (!resolvedPk) {
+    if (successfulSource) return this._sortAndDedupePosts(webPosts, 50);
+    throw new Error(`No Instagram pk available for @${username}: ${errors.join(' | ')}`);
+  }
+
+  try {
+    const privatePosts = await this._getFeedViaUserEndpoint(
+      resolvedPk, username,
+      Math.max(limit, canonicalAfterPk ? 50 : limit),
+      userInfo, canonicalAfterPk
+    );
+    successfulSource = true;
+    const merged = this._sortAndDedupePosts([...webPosts, ...privatePosts], 50);
+    if (merged.length > 0) {
+      log.info({ msg: 'Feed recovered via private endpoint', username, count: merged.length });
+      return merged;
+    }
+  } catch (e) {
+    if (e instanceof InstagramCooldownError) throw e;
+    errors.push(`private_feed: ${e.message}`);
+    log.warn({ msg: 'Private user feed failed', username, error: e.message });
+  }
+
+  try {
+    const graphqlPosts = await this._getFeedViaGraphQL(resolvedPk, username, limit, userInfo);
+    successfulSource = true;
+    const merged = this._sortAndDedupePosts([...webPosts, ...graphqlPosts], 50);
+    if (merged.length > 0) return merged;
+  } catch (e) {
+    errors.push(`legacy_graphql: ${e.message}`);
+  }
+
+  if (successfulSource) return this._sortAndDedupePosts(webPosts, 50);
+  throw new Error(`All Instagram feed sources failed for @${username}: ${errors.join(' | ')}`);
+}
 
   /**
    * Method 1: feed/user/{pk}/ endpoint
@@ -858,22 +921,20 @@ class IgClient {
       return [];
     }
 
-    try {
-      let userPk;
-      try {
-        const webUser = await this._getWebProfile(username);
-        userPk = webUser.id ?? webUser.pk;
-      } catch {
-        const searchUrl = `${IG_API}/web/search/topsearch/?context=blended&query=${encodeURIComponent(username)}&include_reel=true`;
-        const searchRes = await this.axiosInstance.get(searchUrl, {
-          headers: { 'Referer': `${IG_BASE}/` },
-        });
-        this._assertApiResponse(searchRes, 'Instagram story user search');
-        const users = searchRes.data?.users || [];
-        const userMatch = users.find(entry =>
-          entry.user?.username?.toLowerCase() === username.toLowerCase());
-        userPk = userMatch?.user?.pk;
-      }
+    async getUserStories(pkOrUsername, options = {}) {
+  const { userPk: knownPk = null } = options;
+  const username = String(pkOrUsername);
+
+  log.info({ msg: 'Fetching user stories', username });
+  if (!this.axiosInstance) return [];
+
+  try {
+    let userPk = knownPk;
+    if (!userPk) {
+      // FIX: fallback به topsearch حذف شد (302 -> /accounts/login و سوزاندن rate limit)
+      const webUser = await this._getWebProfile(username);
+      userPk = webUser.id ?? webUser.pk;
+    }
 
       if (!userPk) {
         log.warn({ msg: 'Cannot find user for stories', username });
@@ -926,9 +987,10 @@ class IgClient {
       log.info({ msg: 'Stories fetched', count: stories.length, username });
       return stories;
     } catch (e) {
-      log.warn({ msg: 'Failed to fetch stories', username, error: e.message });
-      return [];
-    }
+  if (e instanceof InstagramCooldownError) throw e;   // FIX
+  log.warn({ msg: 'Failed to fetch stories', username, error: e.message });
+  return [];
+}
   }
 
   async logout() {
