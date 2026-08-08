@@ -20,7 +20,7 @@ import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 import config from '../config/env.js';
-import proxyManager from '../proxy/ProxyManager.js';   // FIX: استفاده می‌شد ولی import نشده بود
+import proxyManager from '../proxy/ProxyManager.js';
 import { tgLogger as log } from '../utils/Logger.js';
 import { retryTgRequest } from '../utils/Retry.js';
 import { htmlToMessage } from './HtmlEntities.js';
@@ -420,330 +420,323 @@ class TgClient {
    * Get entity for a channel (resolve by id or username)
    *
    * Cached برای کارایی: بعد از اولین resolve، entity رو در حافظه نگه می‌داریم.
+   * FIX ها:
+   *  - BigInt محاسبه می‌شد و اصلاً استفاده نمی‌شد؛ حالا واقعاً به‌کار می‌رود
+   *  - طبق MTProto اگر peer در کش/دیالوگ‌ها نباشد getInputEntity خطا می‌دهد،
+   *    پس ابتدا با getEntity (contacts.resolveUsername) رزولوِ می‌کنیم و در
+   *    نهایت دیالوگ‌ها را warm-up می‌کنیم
+   *  - نتیجه‌ی ناموفق دیگر کش نمی‌شود
    */
-/**
- * FIX ها:
- *  - BigInt محاسبه می‌شد و اصلاً استفاده نمی‌شد؛ حالا واقعاً به‌کار می‌رود
- *  - طبق MTProto اگر peer در کش/دیالوگ‌ها نباشد getInputEntity خطا می‌دهد،
- *    پس ابتدا با getEntity (contacts.resolveUsername) رزولوِ می‌کنیم و در
- *    نهایت دیالوگ‌ها را warm-up می‌کنیم
- *  - نتیجه‌ی ناموفق دیگر کش نمی‌شود
- */
-async resolveChannel() {
-  if (this._cachedChannelEntity) return this._cachedChannelEntity;
+  async resolveChannel() {
+    if (this._cachedChannelEntity) return this._cachedChannelEntity;
 
-  const channelId = config.telegram.channelId;
-  const channelUsername = config.telegram.channelUsername;
+    const channelId = config.telegram.channelId;
+    const channelUsername = config.telegram.channelUsername;
 
-  log.info({ msg: 'Resolving Telegram channel entity', hasId: !!channelId, channelUsername });
+    log.info({ msg: 'Resolving Telegram channel entity', hasId: !!channelId, channelUsername });
 
-  const candidates = [];
-  if (channelUsername) candidates.push(channelUsername.replace('@', ''));
-  if (channelId) {
-    // -100XXXXXXXXXX  =>  channel id واقعی
-    const raw = channelId.startsWith('-100') ? channelId.slice(4) : channelId.replace('-', '');
-    try { candidates.push(BigInt(raw)); } catch { /* ignore */ }
-    candidates.push(channelId);
-  }
-  if (candidates.length === 0) {
-    throw new Error('No channel specified (TG_CHANNEL_ID or TG_CHANNEL_USERNAME)');
-  }
-
-  let lastError = null;
-  for (const candidate of candidates) {
-    try {
-      const entity = await this.client.getEntity(candidate);
-      this._cachedChannelEntity = entity;
-      log.info({ msg: 'Channel resolved', entityId: entity.id?.toString() });
-      return entity;
-    } catch (e) {
-      lastError = e;
-      log.debug({ msg: 'Channel candidate failed', candidate: String(candidate), error: e.message });
+    const candidates = [];
+    if (channelUsername) candidates.push(channelUsername.replace('@', ''));
+    if (channelId) {
+      // -100XXXXXXXXXX  =>  channel id واقعی
+      const raw = channelId.startsWith('-100') ? channelId.slice(4) : channelId.replace('-', '');
+      try { candidates.push(BigInt(raw)); } catch { /* ignore */ }
+      candidates.push(channelId);
     }
-  }
+    if (candidates.length === 0) {
+      throw new Error('No channel specified (TG_CHANNEL_ID or TG_CHANNEL_USERNAME)');
+    }
 
-  // آخرین تلاش: دیالوگ‌ها را بخوان تا کش entity پر شود (الزام MTProto)
-  try {
-    log.warn('Channel not in entity cache — warming up dialogs');
-    const targetId = channelId
-      ? BigInt(channelId.startsWith('-100') ? channelId.slice(4) : channelId.replace('-', ''))
-      : null;
-    const dialogs = await this.client.getDialogs({ limit: 200 });
-    for (const dialog of dialogs) {
-      const id = dialog.entity?.id?.toString?.();
-      const uname = dialog.entity?.username?.toLowerCase?.();
-      if ((targetId && id === targetId.toString())
-        || (channelUsername && uname === channelUsername.replace('@', '').toLowerCase())) {
-        this._cachedChannelEntity = dialog.entity;
-        log.info({ msg: 'Channel resolved via dialogs', entityId: id });
-        return dialog.entity;
+    let lastError = null;
+    for (const candidate of candidates) {
+      try {
+        const entity = await this.client.getEntity(candidate);
+        this._cachedChannelEntity = entity;
+        log.info({ msg: 'Channel resolved', entityId: entity.id?.toString() });
+        return entity;
+      } catch (e) {
+        lastError = e;
+        log.debug({ msg: 'Channel candidate failed', candidate: String(candidate), error: e.message });
       }
     }
-  } catch (e) {
-    lastError = e;
+
+    // آخرین تلاش: دیالوگ‌ها را بخوان تا کش entity پر شود (الزام MTProto)
+    try {
+      log.warn('Channel not in entity cache — warming up dialogs');
+      const targetId = channelId
+        ? BigInt(channelId.startsWith('-100') ? channelId.slice(4) : channelId.replace('-', ''))
+        : null;
+      const dialogs = await this.client.getDialogs({ limit: 200 });
+      for (const dialog of dialogs) {
+        const id = dialog.entity?.id?.toString?.();
+        const uname = dialog.entity?.username?.toLowerCase?.();
+        if ((targetId && id === targetId.toString())
+          || (channelUsername && uname === channelUsername.replace('@', '').toLowerCase())) {
+          this._cachedChannelEntity = dialog.entity;
+          log.info({ msg: 'Channel resolved via dialogs', entityId: id });
+          return dialog.entity;
+        }
+      }
+    } catch (e) {
+      lastError = e;
+    }
+
+    log.error({ msg: 'Could not resolve channel', channelId, channelUsername, error: lastError?.message });
+    throw lastError || new Error('Cannot resolve channel entity');
   }
 
-  log.error({ msg: 'Could not resolve channel', channelId, channelUsername, error: lastError?.message });
-  throw lastError || new Error('Cannot resolve channel entity');
-}
   /**
    * Send a text message
+   * FIX(bug9/bug10): پیام‌ها با MessageEntity واقعی MTProto ارسال می‌شوند
+   * (blockquote expandable => MessageEntityBlockquote{collapsed:true})
+   * و سقف 4096 روی UTF-16 code unit اعمال می‌شود.
    */
-/**
- * FIX: طبق core.telegram.org سقف متن پیام 4096 کاراکتر UTF-16 است.
- * قبلاً پست بدون مدیا با کپشن بلند MESSAGE_TOO_LONG می‌گرفت و job fail می‌شد.
- */
-/**
- * FIX(bug9/bug10): پیام‌ها با MessageEntity واقعی MTProto ارسال می‌شوند
- * (blockquote expandable => MessageEntityBlockquote{collapsed:true})
- * و سقف 4096 روی UTF-16 code unit اعمال می‌شود.
- */
-async sendMessage(text, options = {}) {
-  const entity = await this.resolveChannel();
-  const { replyTo, linkPreview, parseMode: _ignored, ...rest } = options;
-  const chunks = this._splitMessage(String(text ?? ''), 4096);
-  const sent = [];
-  let replyTarget = replyTo;
+  async sendMessage(text, options = {}) {
+    const entity = await this.resolveChannel();
+    const { replyTo, linkPreview, parseMode: _ignored, ...rest } = options;
+    const chunks = this._splitMessage(String(text ?? ''), 4096);
+    const sent = [];
+    let replyTarget = replyTo;
 
-  for (const chunk of chunks) {
-    const { text: message, entities } = htmlToMessage(chunk, { maxLength: 4096 });
-    try {
-      const result = await this.client.sendMessage(entity, {
-        message,
-        formattingEntities: entities,
-        linkPreview: linkPreview ?? false,
-        ...rest,
-        ...(replyTarget ? { replyTo: replyTarget } : {}),
-      });
-      const info = {
-        id: result.id,
-        chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
-      };
-      sent.push(info);
-      if (!replyTo) replyTarget = info.id;
-    } catch (e) {
-      log.error({
-        msg: 'sendMessage failed',
-        error: e.message, errorMessage: e.errorMessage,
-        textLength: message.length, textPreview: message.slice(0, 100),
-      });
-      throw e;
+    for (const chunk of chunks) {
+      const { text: message, entities } = htmlToMessage(chunk, { maxLength: 4096 });
+      try {
+        const result = await this.client.sendMessage(entity, {
+          message,
+          formattingEntities: entities,
+          linkPreview: linkPreview ?? false,
+          ...rest,
+          ...(replyTarget ? { replyTo: replyTarget } : {}),
+        });
+        const info = {
+          id: result.id,
+          chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
+        };
+        sent.push(info);
+        if (!replyTo) replyTarget = info.id;
+      } catch (e) {
+        log.error({
+          msg: 'sendMessage failed',
+          error: e.message, errorMessage: e.errorMessage,
+          textLength: message.length, textPreview: message.slice(0, 100),
+        });
+        throw e;
+      }
     }
+
+    return sent.length === 1 ? sent[0] : sent;
   }
 
-  return sent.length === 1 ? sent[0] : sent;
-}
-
-/** تقسیم امن متن HTML روی مرز خط تا تگ‌ها نصف نشوند */
-_splitMessage(text, maxLength = 4096) {
-  if (text.length <= maxLength) return [text];
-  const chunks = [];
-  let current = '';
-  for (const line of text.split('\n')) {
-    if ((current + '\n' + line).length > maxLength) {
-      if (current) chunks.push(current);
-      current = line.length > maxLength ? line.slice(0, maxLength) : line;
-    } else {
-      current = current ? `${current}\n${line}` : line;
+  /** تقسیم امن متن HTML روی مرز خط تا تگ‌ها نصف نشوند */
+  _splitMessage(text, maxLength = 4096) {
+    if (text.length <= maxLength) return [text];
+    const chunks = [];
+    let current = '';
+    for (const line of text.split('\n')) {
+      if ((current + '\n' + line).length > maxLength) {
+        if (current) chunks.push(current);
+        current = line.length > maxLength ? line.slice(0, maxLength) : line;
+      } else {
+        current = current ? `${current}\n${line}` : line;
+      }
     }
+    if (current) chunks.push(current);
+    return chunks;
   }
-  if (current) chunks.push(current);
-  return chunks;
-}
+
   /**
    * Send a file (photo/video/document)
    */
-async sendFile(filePath, options = {}) {
-  const entity = await this.resolveChannel();
-  const { caption = '', parseMode: _ignored, ...rest } = options;
+  async sendFile(filePath, options = {}) {
+    const entity = await this.resolveChannel();
+    const { caption = '', parseMode: _ignored, ...rest } = options;
 
-  // FIX(bug10): سقف کپشن رسانه 1024 UTF-16 code unit است
-  const { text: captionText, entities } = htmlToMessage(caption, { maxLength: 1024 });
+    // FIX(bug10): سقف کپشن رسانه 1024 UTF-16 code unit است
+    const { text: captionText, entities } = htmlToMessage(caption, { maxLength: 1024 });
 
-  const sendOptions = {
-    caption: captionText,
-    formattingEntities: entities,
-    ...rest,
-  };
+    const sendOptions = {
+      caption: captionText,
+      formattingEntities: entities,
+      ...rest,
+    };
 
-  if (options.asPhoto) sendOptions.forceDocument = false;
-  else if (options.asDocument) sendOptions.forceDocument = true;
+    if (options.asPhoto) sendOptions.forceDocument = false;
+    else if (options.asDocument) sendOptions.forceDocument = true;
 
-  if (options.spoiler) sendOptions.spoiler = true;
-  if (options.ttl) sendOptions.ttl = options.ttl;
+    if (options.spoiler) sendOptions.spoiler = true;
+    if (options.ttl) sendOptions.ttl = options.ttl;
 
-  delete sendOptions.asPhoto;
-  delete sendOptions.asDocument;
+    delete sendOptions.asPhoto;
+    delete sendOptions.asDocument;
 
-  const result = await this.client.sendFile(entity, {
-    file: filePath,
-    ...sendOptions,
-  });
+    const result = await this.client.sendFile(entity, {
+      file: filePath,
+      ...sendOptions,
+    });
 
-  return {
-    id: result.id,
-    chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
-  };
-}
+    return {
+      id: result.id,
+      chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
+    };
+  }
+
   /**
    * Send grouped media using Telegram's messages.sendMultiMedia flow.
-   * Telegram allows 2-10 items per album, so oversized carousels are split
-   * without creating a one-item trailing batch.
+   * FIX(bug12): طبق مستندات، یک media group باید همگن باشد (همه photo/video
+   * یا همه document). آیتم‌هایی که نوعشان قابل ارسال به‌عنوان photo/video نیست
+   * جدا و به‌صورت document ارسال می‌شوند تا کل آلبوم MEDIA_INVALID نگیرد.
+   * FIX(bug9/10): کپشن به‌صورت متن ساده + entity واقعی MTProto می‌رود.
    */
-/**
- * FIX(bug12): طبق مستندات، یک media group باید همگن باشد (همه photo/video
- * یا همه document). آیتم‌هایی که نوعشان قابل ارسال به‌عنوان photo/video نیست
- * جدا و به‌صورت document ارسال می‌شوند تا کل آلبوم MEDIA_INVALID نگیرد.
- * FIX(bug9/10): کپشن به‌صورت متن ساده + entity واقعی MTProto می‌رود.
- */
-async sendAlbum(filePaths, options = {}) {
-  const entity = await this.resolveChannel();
+  async sendAlbum(filePaths, options = {}) {
+    const entity = await this.resolveChannel();
 
-  if (!Array.isArray(filePaths) || filePaths.length < 2) {
-    throw new Error('An album requires at least 2 files');
-  }
+    if (!Array.isArray(filePaths) || filePaths.length < 2) {
+      throw new Error('An album requires at least 2 files');
+    }
 
-  const { caption = '', replyTo = undefined, parseMode: _ignored, ...extraOptions } = options;
-  const { text: captionText, entities: captionEntities } =
-    htmlToMessage(caption, { maxLength: 1024 });
+    const { caption = '', replyTo = undefined, parseMode: _ignored, ...extraOptions } = options;
+    const { text: captionText, entities: captionEntities } =
+      htmlToMessage(caption, { maxLength: 1024 });
 
-  const MEDIA_EXT = /\.(jpe?g|png|webp|heic|mp4|mov|m4v|gif)$/i;
-  const groupable = filePaths.filter(p => MEDIA_EXT.test(String(p)));
-  const documents = filePaths.filter(p => !MEDIA_EXT.test(String(p)));
+    const MEDIA_EXT = /\.(jpe?g|png|webp|heic|mp4|mov|m4v|gif)$/i;
+    const groupable = filePaths.filter(p => MEDIA_EXT.test(String(p)));
+    const documents = filePaths.filter(p => !MEDIA_EXT.test(String(p)));
 
-  if (documents.length > 0) {
-    log.warn({
-      msg: 'Non-groupable media detected; sending separately as documents',
-      count: documents.length,
-    });
-  }
-
-  const results = [];
-  let firstMessageId = null;
-
-  const pushMessages = (result) => {
-    const messages = Array.isArray(result) ? result : [result];
-    for (const message of messages) {
-      if (!message) continue;
-      results.push({
-        id: message.id,
-        chatId: message.chatId?.toString?.() || message.peerId?.toString?.() || null,
+    if (documents.length > 0) {
+      log.warn({
+        msg: 'Non-groupable media detected; sending separately as documents',
+        count: documents.length,
       });
     }
-    if (!firstMessageId) firstMessageId = results[0]?.id;
-  };
 
-  // ساخت batch های ۲..۱۰ تایی بدون batch یک‌آیتمی در انتها
-  const batches = [];
-  let offset = 0;
-  while (groupable.length - offset > 10) {
-    const remaining = groupable.length - offset;
-    const batchSize = remaining === 11 ? 9 : 10;
-    batches.push(groupable.slice(offset, offset + batchSize));
-    offset += batchSize;
-  }
-  if (groupable.length - offset > 0) batches.push(groupable.slice(offset));
+    const results = [];
+    let firstMessageId = null;
 
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-    const batch = batches[batchIndex];
-    const replyTarget = batchIndex === 0 ? replyTo : firstMessageId;
+    const pushMessages = (result) => {
+      const messages = Array.isArray(result) ? result : [result];
+      for (const message of messages) {
+        if (!message) continue;
+        results.push({
+          id: message.id,
+          chatId: message.chatId?.toString?.() || message.peerId?.toString?.() || null,
+        });
+      }
+      if (!firstMessageId) firstMessageId = results[0]?.id;
+    };
 
-    // batch یک‌آیتمی معتبرِ آلبوم نیست -> تک‌فایل ارسال می‌شود
-    if (batch.length === 1) {
-      const isFirst = batchIndex === 0;
+    // ساخت batch های ۲..۱۰ تایی بدون batch یک‌آیتمی در انتها
+    const batches = [];
+    let offset = 0;
+    while (groupable.length - offset > 10) {
+      const remaining = groupable.length - offset;
+      const batchSize = remaining === 11 ? 9 : 10;
+      batches.push(groupable.slice(offset, offset + batchSize));
+      offset += batchSize;
+    }
+    if (groupable.length - offset > 0) batches.push(groupable.slice(offset));
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      const replyTarget = batchIndex === 0 ? replyTo : firstMessageId;
+
+      // batch یک‌آیتمی معتبرِ آلبوم نیست -> تک‌فایل ارسال می‌شود
+      if (batch.length === 1) {
+        const isFirst = batchIndex === 0;
+        const result = await retryTgRequest(() => this.client.sendFile(entity, {
+          ...extraOptions,
+          file: batch[0],
+          caption: isFirst ? captionText : '',
+          formattingEntities: isFirst ? captionEntities : [],
+          forceDocument: false,
+          supportsStreaming: true,
+          ...(replyTarget ? { replyTo: replyTarget } : {}),
+        }));
+        pushMessages(result);
+        continue;
+      }
+
+      if (batch.length > 10) {
+        throw new Error(`Invalid Telegram album batch size: ${batch.length}`);
+      }
+
+      const captions = batch.map((_, itemIndex) =>
+        batchIndex === 0 && itemIndex === 0 ? captionText : '');
+
+      // Retry فقط روی همین batch (تکرار کل carousel = پیام تکراری)
       const result = await retryTgRequest(() => this.client.sendFile(entity, {
         ...extraOptions,
-        file: batch[0],
-        caption: isFirst ? captionText : '',
-        formattingEntities: isFirst ? captionEntities : [],
+        file: batch,
+        caption: captions,
+        formattingEntities: batchIndex === 0 ? captionEntities : [],
         forceDocument: false,
         supportsStreaming: true,
         ...(replyTarget ? { replyTo: replyTarget } : {}),
       }));
       pushMessages(result);
-      continue;
     }
 
-    if (batch.length > 10) {
-      throw new Error(`Invalid Telegram album batch size: ${batch.length}`);
+    // آیتم‌های غیرهمگن، جدا و به‌عنوان document
+    for (const documentPath of documents) {
+      try {
+        const result = await retryTgRequest(() => this.client.sendFile(entity, {
+          ...extraOptions,
+          file: documentPath,
+          forceDocument: true,
+          caption: '',
+          ...(firstMessageId ? { replyTo: firstMessageId } : {}),
+        }));
+        pushMessages(result);
+      } catch (e) {
+        log.error({ msg: 'Non-groupable item failed', file: documentPath, error: e.message });
+      }
     }
 
-    const captions = batch.map((_, itemIndex) =>
-      batchIndex === 0 && itemIndex === 0 ? captionText : '');
-
-    // Retry فقط روی همین batch (تکرار کل carousel = پیام تکراری)
-    const result = await retryTgRequest(() => this.client.sendFile(entity, {
-      ...extraOptions,
-      file: batch,
-      caption: captions,
-      formattingEntities: batchIndex === 0 ? captionEntities : [],
-      forceDocument: false,
-      supportsStreaming: true,
-      ...(replyTarget ? { replyTo: replyTarget } : {}),
-    }));
-    pushMessages(result);
-  }
-
-  // آیتم‌های غیرهمگن، جدا و به‌عنوان document
-  for (const documentPath of documents) {
-    try {
-      const result = await retryTgRequest(() => this.client.sendFile(entity, {
-        ...extraOptions,
-        file: documentPath,
-        forceDocument: true,
-        caption: '',
-        ...(firstMessageId ? { replyTo: firstMessageId } : {}),
-      }));
-      pushMessages(result);
-    } catch (e) {
-      log.error({ msg: 'Non-groupable item failed', file: documentPath, error: e.message });
+    if (results.length === 0) {
+      throw new Error('Telegram returned no messages for album');
     }
+
+    return results;
   }
 
-  if (results.length === 0) {
-    throw new Error('Telegram returned no messages for album');
-  }
-
-  return results;
-}
   /**
    * Send UTF-8 text as a document, optionally replying to another message.
    */
-async sendTextFile(content, options = {}) {
-  const entity = await this.resolveChannel();
-  const buffer = Buffer.from(String(content ?? ''), 'utf8');
-  buffer.name = options.filename || 'instagram-caption.txt';
+  async sendTextFile(content, options = {}) {
+    const entity = await this.resolveChannel();
+    const buffer = Buffer.from(String(content ?? ''), 'utf8');
+    buffer.name = options.filename || 'instagram-caption.txt';
 
-  const { text: captionText, entities } =
-    htmlToMessage(options.caption || '', { maxLength: 1024 });
+    const { text: captionText, entities } =
+      htmlToMessage(options.caption || '', { maxLength: 1024 });
 
-  const result = await this.client.sendFile(entity, {
-    file: buffer,
-    forceDocument: true,
-    caption: captionText,
-    formattingEntities: entities,
-    ...(options.replyTo ? { replyTo: options.replyTo } : {}),
-  });
-
-  return {
-    id: result.id,
-    chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
-  };
-}
-
-async sendAlert(text) {
-  if (!config.telegram.alertChatId) return;
-
-  try {
-    const { text: message, entities } = htmlToMessage(String(text ?? ''), { maxLength: 4096 });
-    await this.client.sendMessage(config.telegram.alertChatId, {
-      message,
+    const result = await this.client.sendFile(entity, {
+      file: buffer,
+      forceDocument: true,
+      caption: captionText,
       formattingEntities: entities,
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
     });
-  } catch (e) {
-    log.warn({ msg: 'Could not send alert', error: e.message });
+
+    return {
+      id: result.id,
+      chatId: result.chatId?.toString?.() || result.peerId?.toString?.() || null,
+    };
   }
-}
+
+  async sendAlert(text) {
+    if (!config.telegram.alertChatId) return;
+
+    try {
+      const { text: message, entities } = htmlToMessage(String(text ?? ''), { maxLength: 4096 });
+      await this.client.sendMessage(config.telegram.alertChatId, {
+        message,
+        formattingEntities: entities,
+      });
+    } catch (e) {
+      log.warn({ msg: 'Could not send alert', error: e.message });
+    }
+  }
+
   /**
    * Disconnect
    */
@@ -772,66 +765,67 @@ async sendAlert(text) {
   /**
    * Get debug info for /debug endpoint
    */
-getDebugInfo() {
-  let sessionFileInfo = null;
-  if (this.sessionFilePath && existsSync(this.sessionFilePath)) {
-    try {
-      const stats = statSync(this.sessionFilePath);
-      sessionFileInfo = {
-        path: this.sessionFilePath,
-        exists: true,
-        size: stats.size,
-        modifiedAt: stats.mtime.toISOString(),
-      };
-    } catch (e) {
-      sessionFileInfo = { path: this.sessionFilePath, exists: true, error: e.message };
+  getDebugInfo() {
+    let sessionFileInfo = null;
+    if (this.sessionFilePath && existsSync(this.sessionFilePath)) {
+      try {
+        const stats = statSync(this.sessionFilePath);
+        sessionFileInfo = {
+          path: this.sessionFilePath,
+          exists: true,
+          size: stats.size,
+          modifiedAt: stats.mtime.toISOString(),
+        };
+      } catch (e) {
+        sessionFileInfo = { path: this.sessionFilePath, exists: true, error: e.message };
+      }
+    } else {
+      sessionFileInfo = { path: this.sessionFilePath, exists: false };
     }
-  } else {
-    sessionFileInfo = { path: this.sessionFilePath, exists: false };
+
+    const tgProxyRaw = (process.env.TG_PROXY || '').trim();
+    const isAuto = tgProxyRaw === 'auto';
+    const usingProxy = !!this._autoFoundProxy || !!this.stickyProxy;
+
+    // FIX(bug13): گزارش درست منبع سشن + پروکسی مؤثر + ماسک شماره تلفن
+    const sessionSource = sessionFileInfo.exists
+      ? 'file'
+      : (process.env.TG_SESSION_STRING ? 'environment' : 'none');
+
+    const maskPhone = (phone) => {
+      if (!phone) return null;
+      const s = String(phone);
+      return s.length <= 4 ? '****' : `${'*'.repeat(s.length - 4)}${s.slice(-4)}`;
+    };
+
+    return {
+      isConnected: this.isConnected,
+      hasSession: !!this.sessionString,
+      sessionSource,
+      sessionFile: sessionFileInfo,
+      hasClient: !!this.client,
+      me: this.me ? {
+        id: this.me.id?.toString(),
+        username: this.me.username,
+        firstName: this.me.firstName,
+        phone: maskPhone(this.me.phone),
+      } : null,
+      proxy: {
+        tgProxy: tgProxyRaw ? (isAuto ? 'auto' : 'configured') : 'none',
+        isAuto,
+        // با WSS، حالت auto عملاً skip می‌شود؛ گزارش قبلی گمراه‌کننده بود
+        effectiveProxy: usingProxy
+          ? (this._autoFoundProxy
+            ? `${this._autoFoundProxy.proxy?.host}:${this._autoFoundProxy.proxy?.port}`
+            : `${this.stickyProxy.host}:${this.stickyProxy.port}`)
+          : 'none (WSS direct)',
+        transport: 'WSS (PromisedWebSockets)',
+      },
+      lastError: this.lastError,
+      lastErrorAt: this.lastErrorAt,
+      connectionAttempts: this.connectionAttempts,
+    };
   }
-
-  const tgProxyRaw = (process.env.TG_PROXY || '').trim();
-  const isAuto = tgProxyRaw === 'auto';
-  const usingProxy = !!this._autoFoundProxy || !!this.stickyProxy;
-
-  // FIX(bug13): گزارش درست منبع سشن + پروکسی مؤثر + ماسک شماره تلفن
-  const sessionSource = sessionFileInfo.exists
-    ? 'file'
-    : (process.env.TG_SESSION_STRING ? 'environment' : 'none');
-
-  const maskPhone = (phone) => {
-    if (!phone) return null;
-    const s = String(phone);
-    return s.length <= 4 ? '****' : `${'*'.repeat(s.length - 4)}${s.slice(-4)}`;
-  };
-
-  return {
-    isConnected: this.isConnected,
-    hasSession: !!this.sessionString,
-    sessionSource,
-    sessionFile: sessionFileInfo,
-    hasClient: !!this.client,
-    me: this.me ? {
-      id: this.me.id?.toString(),
-      username: this.me.username,
-      firstName: this.me.firstName,
-      phone: maskPhone(this.me.phone),
-    } : null,
-    proxy: {
-      tgProxy: tgProxyRaw ? (isAuto ? 'auto' : 'configured') : 'none',
-      isAuto,
-      // با WSS، حالت auto عملاً skip می‌شود؛ گزارش قبلی گمراه‌کننده بود
-      effectiveProxy: usingProxy
-        ? (this._autoFoundProxy
-          ? `${this._autoFoundProxy.proxy?.host}:${this._autoFoundProxy.proxy?.port}`
-          : `${this.stickyProxy.host}:${this.stickyProxy.port}`)
-        : 'none (WSS direct)',
-      transport: 'WSS (PromisedWebSockets)',
-    },
-    lastError: this.lastError,
-    lastErrorAt: this.lastErrorAt,
-    connectionAttempts: this.connectionAttempts,
-  };
 }
 
 const tgClient = new TgClient();
