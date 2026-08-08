@@ -93,14 +93,9 @@ function buildAxios(cookieJar, proxyUrl = null) {
  * Validate cookies by trying multiple methods
  *
  * اینستاگرام اخیراً endpointهای قدیمی رو حذف/تغییر داده. به همین دلیل،
- * چندین روش برای validation استفاده می‌کنیم:
- *   1. چک کردن وجود cookieهای ضروری (مطمئن‌ترین)
- *   2. تلاش برای fetch پروفایل خود کاربر (از طریق ds_user_id)
- *   3. تلاش برای fetch یه پروفایل عمومی (مثل instagram)
- *
- * اگه هر کدوم از روش‌ها موفق باشه، session معتبره.
- * اگه همه شکست بخورن ولی cookieها موجود باشن، session رو قبول می‌کنیم
- * چون از مرورگر واقعی استخراج شده.
+ * Session validation requires both essential cookies and a successful response
+ * from an authenticated endpoint. Public endpoints and cookie presence alone
+ * are not proof that Instagram still accepts the session.
  */
 async function validateCookies(axiosInstance, cookieJar) {
   // ============================================
@@ -152,51 +147,21 @@ async function validateCookies(axiosInstance, cookieJar) {
         return { valid: true, user: res.data.data.user, method: 'graphql' };
       }
 
-      // If we got JSON response (not HTML 404), session likely works
-      const contentType = res.headers?.['content-type'] || '';
-      if (contentType.includes('application/json') && res.status === 200) {
-        return { valid: true, user: null, method: 'json_response' };
+      if (res.data?.form_data) {
+        return { valid: true, user: res.data.form_data, method: 'account_edit' };
       }
+
+
     } catch (e) {
       // Try next endpoint
     }
   }
 
-  // ============================================
-  // Method 3: Try fetching a public profile (always works if session is valid)
-  // ============================================
-  try {
-    const res = await axiosInstance.get(
-      `${IG_API}/web/search/topsearch/?context=blended&query=instagram&include_reel=true`,
-      {
-        headers: {
-          'Referer': `${IG_BASE}/`,
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-origin',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-      }
-    );
-
-    // If we get JSON response with users array, session is working
-    if (res.status === 200 &&
-        res.headers?.['content-type']?.includes('application/json') &&
-        (res.data?.users !== undefined || res.data?.status === 'ok')) {
-      return { valid: true, user: null, method: 'search' };
-    }
-  } catch (e) {
-    // last attempt failed
-  }
-
-  // ============================================
-  // Fallback: Trust the cookies (we got them from a real browser session)
-  // ============================================
   return {
-    valid: true,
+    valid: false,
     user: null,
-    method: 'cookies_only',
-    warning: 'Could not verify via API, but cookies were extracted from a real logged-in browser session.',
+    method: null,
+    reason: 'Required cookies exist, but no authenticated Instagram endpoint accepted the session.',
   };
 }
 
@@ -770,9 +735,9 @@ async function main() {
     }
 
     console.log(kleur.green('   ✓ All essential cookies present'));
-    console.log(kleur.gray(`   sessionid: ${cookieJar.sessionid?.slice(0, 20)}...`));
-    console.log(kleur.gray(`   csrftoken: ${cookieJar.csrftoken?.slice(0, 20)}...`));
-    console.log(kleur.gray(`   ds_user_id: ${cookieJar.ds_user_id}`));
+    console.log(kleur.gray(`   sessionid: ${cookieJar.sessionid ? 'present' : 'missing'}`));
+    console.log(kleur.gray(`   csrftoken: ${cookieJar.csrftoken ? 'present' : 'missing'}`));
+    console.log(kleur.gray(`   ds_user_id: ${cookieJar.ds_user_id ? 'present' : 'missing'}`));
 
     // ============================================
     // Validate via API

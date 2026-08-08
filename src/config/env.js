@@ -131,6 +131,7 @@ const config = {
     logoutAfterRequest: getBool('LOGOUT_AFTER_REQUEST', false),
     rateLimitCooldown: getInt('IG_RATE_LIMIT_COOLDOWN', 15 * 60),
     challengeCooldown: getInt('IG_CHALLENGE_COOLDOWN', 60 * 60),
+    reconnectInterval: getInt('IG_RECONNECT_INTERVAL', 10 * 60),
     scheduleJitterPercent: getInt('SCHEDULE_JITTER_PERCENT', 15),
   },
 

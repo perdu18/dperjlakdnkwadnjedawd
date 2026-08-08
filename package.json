@@ -31,10 +31,12 @@
     "p-retry": "^6.2.0",
     "pino": "^9.4.0",
     "pino-pretty": "^11.2.2",
-    "playwright": "^1.62.1",
     "socks-proxy-agent": "^8.0.4",
     "teleproto": "^1.228.5",
     "undici": "^6.19.8"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8",

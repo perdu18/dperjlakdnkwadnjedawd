@@ -13,9 +13,10 @@
 import axios from 'axios';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-import { readFileSync, existsSync, mkdirSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { createHash } from 'crypto';
 
 import config from '../config/env.js';
 import { igLogger as log } from '../utils/Logger.js';
@@ -46,6 +47,10 @@ class IgClient {
     this._cooldownUntil = 0;
     this._cooldownReason = null;
     this._profileCache = new Map();
+    this.sessionSource = null;
+    this.sessionFingerprint = null;
+    this.lastVerification = null;
+    this.onSessionInvalid = null;
   }
 
   init() {
@@ -68,82 +73,102 @@ class IgClient {
       const valid = await this._verifySession();
       if (valid) {
         this.isLoggedIn = true;
-        log.info('Session verified, login successful');
+        this.lastError = null;
+        this.lastErrorAt = null;
+        log.info({ msg: 'Session verified, login successful', verification: this.lastVerification?.method });
         return;
       }
-      this.lastError = 'Instagram session verification failed';
+      this.lastError = `Instagram session verification failed: ${this.lastVerification?.reason || 'no authenticated endpoint succeeded'}`;
       this.lastErrorAt = new Date().toISOString();
       this.isLoggedIn = false;
       throw new Error('Instagram session is invalid or expired. Run: npm run setup:instagram');
     }
 
-    this.lastError = `Session file not found at: ${this.sessionFilePath}`;
-    this.lastErrorAt = new Date().toISOString();
-    log.error({ msg: 'No Instagram session found', path: this.sessionFilePath });
-    throw new Error('No Instagram session found. Run: npm run setup:instagram');
+    if (!this.lastError) {
+      this.lastError = `Session file not found at: ${this.sessionFilePath}`;
+      this.lastErrorAt = new Date().toISOString();
+    }
+    log.error({ msg: 'Instagram session could not be restored', error: this.lastError });
+    throw new Error(`${this.lastError}. Run: npm run setup:instagram`);
   }
 
   async _restoreSession() {
-    if (!existsSync(this.sessionFilePath)) {
-      // Try IG_SESSION_BASE64 env var
-      const sessionBase64 = process.env.IG_SESSION_BASE64;
-      if (sessionBase64) {
-        log.info('Found IG_SESSION_BASE64 env var, restoring session from it');
-        return this._restoreSessionFromBase64(sessionBase64);
-      }
-      return false;
+    // Environment configuration is authoritative in cloud deployments. Loading
+    // the volume first caused newly rotated Railway sessions to be ignored.
+    const sessionBase64 = process.env.IG_SESSION_BASE64;
+    if (sessionBase64?.trim()) {
+      log.info('Found IG_SESSION_BASE64; replacing any persisted session copy');
+      return this._restoreSessionFromBase64(sessionBase64);
     }
 
+    if (!existsSync(this.sessionFilePath)) return false;
     try {
       const stateStr = readFileSync(this.sessionFilePath, 'utf8');
-      this.session = JSON.parse(stateStr);
-
-      if (!this.session.cookies || !this.session.cookies.csrftoken) {
-        this.lastError = 'Session file is invalid (missing cookies)';
-        return false;
-      }
-
-      log.info({
-        msg: 'Session file loaded',
-        cookieCount: Object.keys(this.session.cookies).length,
-        username: this.session.username,
-      });
-
-      this._buildAxiosInstance();
-      return true;
+      return this._applySessionData(JSON.parse(stateStr), 'file', false);
     } catch (e) {
-      this.lastError = `Could not restore session: ${e.message}`;
-      log.error({ msg: 'Could not restore session', error: e.message });
+      this.lastError = `Could not restore session file: ${e.message}`;
+      log.error({ msg: 'Could not restore session file', error: e.message });
       return false;
     }
   }
 
   async _restoreSessionFromBase64(sessionBase64) {
     try {
-      const sessionJson = Buffer.from(sessionBase64, 'base64').toString('utf8');
-      const sessionData = JSON.parse(sessionJson);
-
-      if (!sessionData.cookies || !sessionData.cookies.csrftoken) {
-        this.lastError = 'Session from env var is invalid';
-        return false;
+      let normalized = String(sessionBase64).trim().replace(/\s+/g, '');
+      normalized = normalized.replace(/^['"]|['"]$/g, '');
+      if (normalized.startsWith('IG_SESSION_BASE64=')) {
+        normalized = normalized.slice('IG_SESSION_BASE64='.length);
       }
-
-      this.session = sessionData;
-      log.info({ msg: 'Session loaded from IG_SESSION_BASE64', cookieCount: Object.keys(this.session.cookies).length });
-
-      try {
-        const { writeFileSync } = await import('fs');
-        const sessionDir = dirname(this.sessionFilePath);
-        if (!existsSync(sessionDir)) mkdirSync(sessionDir, { recursive: true });
-        writeFileSync(this.sessionFilePath, sessionJson, 'utf8');
-      } catch (e) {}
-
-      this._buildAxiosInstance();
-      return true;
+      normalized = normalized.replace(/^['"]|['"]$/g, '');
+      const sessionJson = Buffer.from(normalized, 'base64').toString('utf8');
+      const sessionData = JSON.parse(sessionJson);
+      return this._applySessionData(sessionData, 'environment', true);
     } catch (e) {
-      this.lastError = `Could not restore session from env var: ${e.message}`;
+      this.lastError = `Could not restore IG_SESSION_BASE64: ${e.message}`;
+      this.lastErrorAt = new Date().toISOString();
+      log.error({ msg: 'Could not restore IG_SESSION_BASE64', error: e.message });
       return false;
     }
+  }
+
+  _applySessionData(sessionData, source, persist) {
+    const essential = ['sessionid', 'csrftoken', 'ds_user_id'];
+    const missing = essential.filter(name => !sessionData?.cookies?.[name]);
+    if (missing.length > 0) {
+      throw new Error(`Session is missing cookies: ${missing.join(', ')}`);
+    }
+    if (sessionData.username
+        && sessionData.username.toLowerCase() !== config.instagram.username.toLowerCase()) {
+      throw new Error(`Session belongs to @${sessionData.username}, not @${config.instagram.username}`);
+    }
+
+    this.session = sessionData;
+    this.sessionSource = source;
+    this.sessionFingerprint = createHash('sha256')
+      .update(String(sessionData.cookies.sessionid))
+      .digest('hex')
+      .slice(0, 12);
+
+    if (persist) {
+      try {
+        const sessionDir = dirname(this.sessionFilePath);
+        if (!existsSync(sessionDir)) mkdirSync(sessionDir, { recursive: true });
+        writeFileSync(this.sessionFilePath, JSON.stringify(sessionData), 'utf8');
+      } catch (e) {
+        log.warn({ msg: 'Could not persist Instagram session copy', error: e.message });
+      }
+    }
+
+    this._buildAxiosInstance();
+    log.info({
+      msg: 'Instagram session loaded',
+      source,
+      fingerprint: this.sessionFingerprint,
+      cookieCount: Object.keys(sessionData.cookies).length,
+      username: sessionData.username,
+      createdAt: sessionData.createdAt,
+    });
+    return true;
   }
 
   _buildAxiosInstance() {
@@ -180,11 +205,15 @@ class IgClient {
     });
     this.axiosInstance.interceptors.response.use(
       response => {
-        this._applySafetyCooldown(response.status, response.data);
+        this._applySafetyCooldown(response.status, response.data, response.headers);
         return response;
       },
       error => {
-        this._applySafetyCooldown(error.response?.status, error.response?.data);
+        this._applySafetyCooldown(
+          error.response?.status,
+          error.response?.data,
+          error.response?.headers
+        );
         throw error;
       }
     );
@@ -231,8 +260,16 @@ class IgClient {
     await gate;
   }
 
-  _applySafetyCooldown(status, data) {
+  _applySafetyCooldown(status, data, headers = {}) {
     const message = String(data?.message || data?.error_type || '').toLowerCase();
+    const redirectLocation = String(headers?.location || '').toLowerCase();
+    const authRejected = status === 401
+      || status === 403
+      || message.includes('login_required')
+      || redirectLocation.includes('/accounts/login');
+    if (authRejected) {
+      this._markSessionInvalid(message || `HTTP ${status}`);
+    }
     let seconds = 0;
     let reason = null;
 
@@ -251,28 +288,83 @@ class IgClient {
     }
   }
 
+  _markSessionInvalid(reason) {
+    const wasLoggedIn = this.isLoggedIn;
+    this.isLoggedIn = false;
+    this.lastError = `Instagram authentication rejected: ${reason}`;
+    this.lastErrorAt = new Date().toISOString();
+    this._profileCache.clear();
+    if (wasLoggedIn) {
+      log.error({ msg: 'Instagram session became invalid', reason });
+      Promise.resolve(this.onSessionInvalid?.(reason)).catch(error => {
+        log.warn({ msg: 'Instagram invalid-session handler failed', error: error.message });
+      });
+    }
+  }
+
   async _verifySession() {
-    const essential = ['sessionid', 'csrftoken', 'ds_user_id'];
-    const missing = essential.filter(c => !this.session.cookies[c]);
-    if (missing.length > 0) {
-      this.lastError = `Missing essential cookies: ${missing.join(', ')}`;
-      return false;
+    const userId = String(this.session.cookies.ds_user_id);
+    const checks = [];
+    const endpoints = [
+      {
+        method: 'current_user',
+        url: `${IG_API}/web/accounts/current_user/?include_dummy=true`,
+        extract: data => data?.viewer?.is_logged_in === true
+          ? data.viewer
+          : (data?.user || data?.data?.user || null),
+      },
+      {
+        method: 'private_user_info',
+        url: `${IG_API}/users/${encodeURIComponent(userId)}/info/`,
+        extract: data => data?.user || null,
+      },
+      {
+        method: 'account_edit',
+        url: `${IG_BASE}/accounts/edit/?__a=1&__d=dis`,
+        extract: data => data?.form_data || data?.user || data?.data?.user || null,
+      },
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await this.axiosInstance.get(endpoint.url, {
+          headers: { 'Referer': `${IG_BASE}/` },
+        });
+        const message = response.data?.message || response.data?.error_type || null;
+        const user = endpoint.extract(response.data);
+        checks.push({ method: endpoint.method, status: response.status, message });
+
+        if (response.status === 200 && user) {
+          this.currentUser = user;
+          this.lastVerification = {
+            valid: true,
+            method: endpoint.method,
+            checkedAt: new Date().toISOString(),
+            checks,
+          };
+          log.info({ msg: 'Instagram session verified', method: endpoint.method, userId });
+          return true;
+        }
+      } catch (e) {
+        checks.push({ method: endpoint.method, error: e.message });
+      }
     }
 
-    try {
-      const res = await this.axiosInstance.get(`${IG_API}/web/accounts/current_user/?include_dummy=true`);
-      this._assertApiResponse(res, 'Instagram session verification');
-      if (res.data?.viewer?.is_logged_in === true) {
-        this.currentUser = res.data.viewer;
-        log.info({ msg: 'Session verified via API', userId: this.currentUser.id });
-        return true;
-      }
-      log.warn({ msg: 'Instagram session verification did not confirm login' });
-      return false;
-    } catch (e) {
-      log.warn({ msg: 'Instagram session verification error', error: e.message });
-      return false;
-    }
+    const explicitAuthFailure = checks.find(check =>
+      check.status === 401
+      || check.status === 403
+      || String(check.message || '').toLowerCase().includes('login_required'));
+    this.lastVerification = {
+      valid: false,
+      method: null,
+      checkedAt: new Date().toISOString(),
+      reason: explicitAuthFailure
+        ? `Instagram rejected authentication (${explicitAuthFailure.message || explicitAuthFailure.status})`
+        : 'Authenticated endpoints returned no recognized user payload',
+      checks,
+    };
+    log.warn({ msg: 'Instagram session verification failed', verification: this.lastVerification });
+    return false;
   }
 
   _assertApiResponse(response, context) {
@@ -872,6 +964,9 @@ class IgClient {
       isLoggedIn: this.isLoggedIn,
       sessionFile: sessionFileInfo,
       hasSession: !!this.session,
+      sessionSource: this.sessionSource,
+      sessionFingerprint: this.sessionFingerprint,
+      lastVerification: this.lastVerification,
       sessionInfo: this.session ? {
         version: this.session.version,
         type: this.session.type,

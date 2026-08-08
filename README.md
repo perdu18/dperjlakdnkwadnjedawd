@@ -275,7 +275,10 @@ node src/index.js
 4. متغیرهای محیطی رو اضافه کنید (Settings → Variables):
    - تمام متغیرهای `.env` رو وارد کنید
    - **مهم:** `TG_SESSION_STRING` رو هم اضافه کنید (مقدار session string که از `setup:telegram` گرفتید)
+   - مقدار کامل فایل `ig-session-base64.txt` را در متغیر `IG_SESSION_BASE64` قرار دهید.
    - `NODE_ENV=production`
+
+> فایل `ig-session-base64.txt` عمداً توسط Git و Docker نادیده گرفته می‌شود و وجود آن در پوشه پروژه باعث بارگذاری خودکار در Railway نمی‌شود. در cloud، متغیر `IG_SESSION_BASE64` منبع اصلی است و نسخه‌ی قدیمی موجود روی volume را جایگزین می‌کند.
 
 5. Railway خودش فایل `railway.json` و `Dockerfile` رو شناسایی می‌کنه
 
@@ -349,6 +352,7 @@ FEED_FETCH_LIMIT=12
 # توقف خودکار پس از rate-limit/challenge، بر حسب ثانیه
 IG_RATE_LIMIT_COOLDOWN=900
 IG_CHALLENGE_COOLDOWN=3600
+IG_RECONNECT_INTERVAL=600
 
 # محافظت از تمام مسیرهای /debug در production
 DEBUG_API_TOKEN=replace-with-a-long-random-secret

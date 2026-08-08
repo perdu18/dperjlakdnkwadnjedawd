@@ -41,6 +41,7 @@ let httpServer = null;
 let statsCronTask = null;
 let isShuttingDown = false;
 let tgRetryInterval = null;
+let igRetryTimer = null;
 let servicesReady = false;
 let startupError = null;
 
@@ -101,6 +102,11 @@ async function initServices() {
   await proxyManager.init();
 
   // 3. Init Instagram client
+  igClient.onSessionInvalid = async reason => {
+    log.error({ msg: 'Instagram authentication lost; pausing polling', reason });
+    pollingWorker.stop();
+    startInstagramRetryLoop();
+  };
   try {
     igClient.init();
     await igClient.login();
@@ -108,6 +114,7 @@ async function initServices() {
   } catch (e) {
     log.error({ msg: 'Instagram initialization failed', error: e.message });
     logEvent('error', 'App', 'Instagram init failed', { error: e.message });
+    startInstagramRetryLoop();
     // Don't throw - continue with other services
   }
 
@@ -523,6 +530,33 @@ function startHttpServer() {
  * اگه تلگرام وصل نشده باشه، هر ۵ دقیقه تلاش می‌کنه دوباره وصل بشه.
  * این مهمه چون پروکسی‌های رایگان ممکنه موقتاً از کار بیفتن.
  */
+function startInstagramRetryLoop() {
+  if (igRetryTimer || isShuttingDown) return;
+  const intervalMs = Math.max(60, config.antiDetect.reconnectInterval) * 1000;
+  log.info({ msg: 'Starting Instagram retry loop', intervalSeconds: intervalMs / 1000 });
+
+  igRetryTimer = setTimeout(async () => {
+    igRetryTimer = null;
+    if (isShuttingDown || igClient.isLoggedIn) return;
+
+    try {
+      log.info('🔄 Retrying Instagram session verification...');
+      await igClient.login();
+      if (igClient.isLoggedIn) {
+        pollingWorker.start();
+        if (tgClient.isReady()) {
+          await sendWorker.recoverPending(1000, { recoverInterrupted: true });
+        }
+        log.info('✓ Instagram reconnected and polling started');
+        return;
+      }
+    } catch (e) {
+      log.warn({ msg: 'Instagram retry failed', error: e.message });
+    }
+    startInstagramRetryLoop();
+  }, intervalMs);
+}
+
 function startTelegramRetryLoop() {
   if (tgRetryInterval) {
     clearInterval(tgRetryInterval);
@@ -597,6 +631,8 @@ async function gracefulShutdown(exitCode = 0) {
 
   try {
     try { pollingWorker.stop(); } catch {}
+    if (igRetryTimer) { clearTimeout(igRetryTimer); igRetryTimer = null; }
+    if (tgRetryInterval) { clearInterval(tgRetryInterval); tgRetryInterval = null; }
     if (statsCronTask) { try { statsCronTask.stop(); } catch {} }
     try { proxyManager.stop(); } catch {}
 
