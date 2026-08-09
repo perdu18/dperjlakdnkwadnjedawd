@@ -111,6 +111,19 @@ try {
   igClient.init();
   await igClient.login();
   log.info('Instagram client ready');
+
+  // FIX(auto-seed): اکانت‌هایی که PK ندارند را به‌طور خودکار از طریق topsearch پیدا کن
+  // این مهم است چون بدون PK، feed fetch کار نمی‌کند
+  try {
+    log.info('Auto-seeding missing account PKs...');
+    const { execSync } = await import('child_process');
+    execSync('node scripts/auto-seed-pks.js', {
+      stdio: 'inherit',
+      cwd: projectRoot || process.cwd(),
+    });
+  } catch (e) {
+    log.warn({ msg: 'Auto-seed failed (non-critical)', error: e.message });
+  }
 } catch (e) {
   // FIX(bug1/bug4/checkpoint): cooldown یعنی «هنوز نمی‌دانیم»، نه «سشن خراب»
   if (e.name === 'InstagramCooldownError') {

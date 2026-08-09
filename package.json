@@ -14,7 +14,11 @@
     "setup": "npm run setup:telegram && npm run setup:instagram",
     "daemon": "node --disable-warning=ExperimentalWarning --enable-source-maps src/index.js",
     "healthcheck": "node -e \"import('./src/utils/Logger.js').then(m => m.default.info('Health OK'))\"",
-    "export-session": "node scripts/export-session-base64.js"
+    "export-session": "node scripts/export-session-base64.js",
+    "diagnose": "node scripts/diagnose-instagram.js",
+    "test-feed": "node scripts/test-feed-fetch.js",
+    "seed-pks": "node scripts/seed-account-pks.js",
+    "auto-seed": "node scripts/auto-seed-pks.js"
   },
   "dependencies": {
     "async-mutex": "^0.5.0",
