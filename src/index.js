@@ -112,12 +112,29 @@ try {
   await igClient.login();
   log.info('Instagram client ready');
 } catch (e) {
-  // FIX(bug1/bug4): cooldown یعنی «هنوز نمی‌دانیم»، نه «سشن خراب»
+  // FIX(bug1/bug4/checkpoint): cooldown یعنی «هنوز نمی‌دانیم»، نه «سشن خراب»
   if (e.name === 'InstagramCooldownError') {
     log.warn({
       msg: 'Instagram verification deferred by cooldown (session NOT invalid)',
       error: e.message,
+      needsManualChallenge: igClient.needsManualChallenge?.() ?? false,
     });
+    // FIX(checkpoint): اگه checkpoint_required است، کاربر باید در اپ اینستاگرام
+    // پیام "Was this you?" را تأیید کند. تلاش مجدد خودکار بی‌فایده است.
+    if (igClient.needsManualChallenge?.()) {
+      try {
+        await botManager.notifyAdmins(
+          '🚨 <b>اینستاگرام نیاز به تأیید امنیتی دارد</b>\n\n' +
+          'سشن اینستاگرام علامت خورده است. لطفاً:\n' +
+          '1. اپ اینستاگرام را باز کنید یا به instagram.com بروید\n' +
+          '2. پیام "Was this you?" را تأیید کنید\n' +
+          '3. اگه کدی فرستاده شد، وارد کنید\n' +
+          '4. سپس منتظر بمانید تا ربات خودکار تلاش مجدد کند (۶ ساعت)\n' +
+          '   یا دستور /restart بدهید\n\n' +
+          '<b>علت:</b> احتمالاً IP سرور Railway با IP ساخت سشن فرق دارد.'
+        );
+      } catch {}
+    }
   } else {
     log.error({ msg: 'Instagram initialization failed', error: e.message });
     logEvent('error', 'App', 'Instagram init failed', { error: e.message });
@@ -326,9 +343,12 @@ function startHttpServer() {
         stats.startupError = config.app.isProduction ? 'startup error (see /debug)' : startupError.message;
       }
 
-      // FIX(bug8/13): جزئیات خطای اینستاگرام در production عمومی نشود
+      // FIX(bug8/13/checkpoint): جزئیات خطای اینستاگرام در production عمومی نشود
       if (!igClient.isLoggedIn) {
-        stats.instagramState = igClient.verificationDeferred ? 'verification_deferred' : 'not_logged_in';
+        const needsChallenge = igClient.needsManualChallenge?.() ?? false;
+        stats.instagramState = needsChallenge
+          ? 'manual_challenge_required'
+          : (igClient.verificationDeferred ? 'verification_deferred' : 'not_logged_in');
         if (!config.app.isProduction && igClient.lastError) {
           stats.instagramError = igClient.lastError;
           stats.instagramErrorAt = igClient.lastErrorAt;

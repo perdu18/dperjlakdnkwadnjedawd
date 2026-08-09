@@ -63,7 +63,7 @@ class MediaDownloader {
           }
 
           headers['User-Agent'] = igClient.session?.userAgent ||
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
           headers['Referer'] = 'https://www.instagram.com/';
           headers['Accept'] = 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
           headers['Accept-Language'] = 'en-US,en;q=0.9';
@@ -137,19 +137,40 @@ class MediaDownloader {
 
   /**
    * دانلود چند فایل همزمان
+   * FIX(concurrency): قبلاً ترتیبی (for + await) بود. حالا با concurrency محدود
+   * (maxConcurrentDownloads) اجرا می‌شود تا carouselهای ۱۰‌تایی سریع‌تر دانلود شوند.
    */
   async downloadMany(urls, options = {}) {
-    const results = [];
+    const results = new Array(urls.length);
     const errors = [];
+    const maxConcurrent = Math.max(1, this.maxConcurrent);
+    let cursor = 0;
+    let running = 0;
 
-    for (let i = 0; i < urls.length; i++) {
-      try {
-        const result = await this.download(urls[i], options);
-        results[i] = result;
-      } catch (e) {
-        errors.push({ index: i, url: urls[i], error: e.message });
-      }
-    }
+    await new Promise((resolve) => {
+      const launchNext = () => {
+        // اگه همه کامل شدند یا همه‌ی slotها پرند، صبر کن
+        while (running < maxConcurrent && cursor < urls.length) {
+          const idx = cursor++;
+          running++;
+          this.download(urls[idx], options)
+            .then((result) => { results[idx] = result; })
+            .catch((e) => {
+              errors.push({ index: idx, url: urls[idx], error: e.message });
+            })
+            .finally(() => {
+              running--;
+              if (cursor >= urls.length && running === 0) {
+                resolve();
+              } else {
+                launchNext();
+              }
+            });
+        }
+      };
+      if (urls.length === 0) resolve();
+      else launchNext();
+    });
 
     return { results: results.filter(Boolean), errors };
   }

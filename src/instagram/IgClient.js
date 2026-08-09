@@ -29,10 +29,16 @@ const projectRoot = resolve(__dirname, '..', '..');
 const IG_BASE = 'https://www.instagram.com';
 const IG_API = 'https://www.instagram.com/api/v1';
 
-const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const IG_APP_ID = '936619743392459';
 
 const MAX_INLINE_WAIT_MS = 60_000;
+
+// FIX(checkpoint): checkpoint_required یعنی اینستاگرام سشن را علامت زده و
+// نیاز به تأیید دستی ("Was this you?") دارد. cooldown کوتاه (۱ ساعت) فقط
+// باعث می‌شود هر ساعت یک درخواست بی‌فایده دیگر بزنیم و شاید flag شدیدتر شود.
+// ۶ ساعت منطقی‌تر است؛ تا آن زمان کاربر باید چالش را در اپ اینستاگرام کامل کند.
+const CHECKPOINT_COOLDOWN_SECONDS = 6 * 60 * 60;
 
 export class InstagramCooldownError extends Error {
   constructor(remainingMs, reason) {
@@ -68,7 +74,7 @@ class IgClient {
     this.sessionSource = null;
     this.sessionFingerprint = null;
     this.lastVerification = null;
-	this.verificationDeferred = false;   // FIX(bug1): «قابل بررسی نبود» ≠ «نامعتبر»
+        this.verificationDeferred = false;   // FIX(bug1): «قابل بررسی نبود» ≠ «نامعتبر»
     this.onSessionInvalid = null;
   }
 
@@ -315,6 +321,16 @@ _buildAxiosInstance() {
     return Math.max(0, this._cooldownUntil - Date.now());
   }
 
+  /**
+   * FIX(checkpoint): آیا سشن علامت خورده و نیاز به چالش دستی دارد؟
+   * وقتی اینستاگرام checkpoint_required برمی‌گرداند، کاربر باید در اپ اینستاگرام
+   * یا وب، پیام "Was this you?" را تأیید کند. تلاش مجدد خودکار بی‌فایده است.
+   */
+  needsManualChallenge() {
+    const reason = String(this._cooldownReason || '').toLowerCase();
+    return reason.includes('checkpoint_required') || reason.includes('challenge_required');
+  }
+
   _applySafetyCooldown(status, data, headers = {}) {
     if (!status) return;
     const message = String(data?.message || data?.error_type || '').toLowerCase();
@@ -338,8 +354,11 @@ _buildAxiosInstance() {
         : config.antiDetect.rateLimitCooldown;
       reason = status === 429 ? 'HTTP 429' : message;
     } else if (message.includes('challenge_required') || message.includes('checkpoint_required')) {
-      seconds = config.antiDetect.challengeCooldown;
-      reason = message;
+      // FIX(checkpoint): checkpoint_required یعنی سشن علامت خورده و نیاز به
+      // تأیید دستی دارد. cooldown کوتاه (config پیش‌فرض ۱ ساعت) فقط حلقه‌ی
+      // تلاش بی‌فایده می‌سازد. از cooldown ۶ ساعته اختصاصی استفاده می‌کنیم.
+      seconds = Math.max(config.antiDetect.challengeCooldown, CHECKPOINT_COOLDOWN_SECONDS);
+      reason = `checkpoint_required (manual challenge needed in IG app)`;
     }
 
     if (seconds > 0) {
@@ -370,12 +389,14 @@ _buildAxiosInstance() {
   }
 
 /**
- * FIX(bug1+bug2+bug3):
- *  - burst سه‌تایی حذف شد؛ endpoint اصلی برای سشن وب web_form_data است.
- *    (i.instagram.com/.../current_user/ یک endpoint اپ موبایل است و با
- *     کوکی وب + UA دسکتاپ عملاً همیشه 4xx/429 می‌دهد و فقط rate limit می‌سوزاند)
- *  - fallback فقط با فاصله‌ی ≥ ۳۰ ثانیه و فقط اگر پاسخ واقعی گرفته باشیم.
- *  - اگر هیچ پاسخ واقعی از اینستاگرام نگرفتیم، نتیجه «نامشخص» است، نه «نامعتبر».
+ * FIX(bug1+bug2+bug3+checkpoint):
+ *  - ترتیب endpointها عوض شد: اول /users/{id}/info/ (read-only، کم‌ریسک)
+ *    چون /accounts/edit/web_form_data/ یک endpoint ویرایش حساب حساس است و
+ *    حتی با سشن‌های معتبر هم ممکن است checkpoint_required برگرداند.
+ *  - web_form_data به‌عنوان fallback آخر باقی مانده (فقط وقتی قبلی‌ها ۴۲۹ نبودند).
+ *  - اگر پاسخ واقعی گرفتیم ولی هیچ‌کدام ۲۰۰ نداد، نتیجه «نامشخص» است، نه «نامعتبر».
+ *  - checkpoint_required حالا cooldown مخصوص خودش (۶ ساعت) می‌گیرد تا حلقه‌ی
+ *    تلاش بی‌فایده‌ی هرساعته قطع شود.
  */
 async _verifySession() {
   if (this.isCoolingDown()) {
@@ -395,15 +416,15 @@ async _verifySession() {
   const checks = [];
   const endpoints = [
     {
-      method: 'web_form_data',
-      url: `${IG_API}/accounts/edit/web_form_data/`,
-      extract: data => data?.form_data || null,
-      gapMs: 0,
-    },
-    {
       method: 'private_user_info',
       url: `${IG_API}/users/${encodeURIComponent(userId)}/info/`,
       extract: data => data?.user || null,
+      gapMs: 0,
+    },
+    {
+      method: 'web_form_data',
+      url: `${IG_API}/accounts/edit/web_form_data/`,
+      extract: data => data?.form_data || null,
       gapMs: 30_000,
     },
   ];
@@ -1043,7 +1064,7 @@ async _verifySession() {
       isLoggedIn: this.isLoggedIn,
       sessionFile: sessionFileInfo,
       hasSession: !!this.session,
-	  verificationDeferred: this.verificationDeferred,
+          verificationDeferred: this.verificationDeferred,
       sessionSource: this.sessionSource,
       sessionFingerprint: this.sessionFingerprint,
       lastVerification: this.lastVerification,
@@ -1074,6 +1095,7 @@ async _verifySession() {
           ? new Date(this._cooldownUntil).toISOString()
           : null,
         cooldownReason: this._cooldownReason,
+        needsManualChallenge: this.needsManualChallenge(),
         cachedProfiles: this._profileCache.size,
         requestDelayMin: config.antiDetect.requestDelayMin,
         requestDelayMax: config.antiDetect.requestDelayMax,

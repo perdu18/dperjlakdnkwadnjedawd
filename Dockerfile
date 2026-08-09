@@ -25,4 +25,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 EXPOSE ${PORT:-3000}
 
-CMD ["node", "--no-warnings", "--enable-source-maps", "src/index.js"]
+# FIX(docker): --no-warnings همه هشدارها را خاموش می‌کند. به‌جای آن فقط
+# ExperimentalWarning مربوط به node:sqlite را فیلتر می‌کنیم تا هشدارهای مفید
+# (deprecation، security و غیره) همچنان نمایش داده شوند.
+CMD ["node", "--disable-warning=ExperimentalWarning", "--enable-source-maps", "src/index.js"]

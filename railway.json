@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "node --no-warnings --enable-source-maps src/index.js",
+    "startCommand": "node --disable-warning=ExperimentalWarning --enable-source-maps src/index.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 180,
     "restartPolicyType": "ON_FAILURE",

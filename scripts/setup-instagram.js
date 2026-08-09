@@ -52,7 +52,8 @@ if (existsSync(envPath)) {
 
 const IG_BASE = 'https://www.instagram.com';
 const IG_API = 'https://www.instagram.com/api/v1';
-const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+// FIX(ua): Chrome 120 (Dec 2023) قدیمی و مشکوک است. Chrome 131 فعلی استفاده می‌شود.
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const IG_APP_ID = '936619743392459';
 
 /**
@@ -113,12 +114,16 @@ async function validateCookies(axiosInstance, cookieJar) {
 
   // ============================================
   // Method 2: Try fetching current user info (multiple endpoints)
+  // FIX(validation): endpointهای منسوخ‌شده حذف شدند:
+  //   - /web/accounts/current_user/ (حذف شده توسط اینستاگرام)
+  //   - ?__a=1&__d=dis (منسوخ شده)
+  // اول /users/{id}/info/ (read-only، کم‌ریسک)؛ بعد /accounts/edit/web_form_data/
   // ============================================
   const userId = cookieJar.ds_user_id;
   const endpoints = [
-    `${IG_API}/web/accounts/current_user/?include_dummy=true`,
     `${IG_API}/users/${userId}/info/`,
-    `${IG_BASE}/accounts/edit/?__a=1&__d=dis`,
+    `${IG_API}/accounts/edit/web_form_data/`,
+    `${IG_API}/feed/timeline/`,
   ];
 
   for (const url of endpoints) {
@@ -149,6 +154,16 @@ async function validateCookies(axiosInstance, cookieJar) {
 
       if (res.data?.form_data) {
         return { valid: true, user: res.data.form_data, method: 'account_edit' };
+      }
+
+      // FIX(validation): /feed/timeline/ لیست پست‌های home را برمی‌گرداند.
+      // اگه items آرایه است و more_available داره، سشن قطعاً معتبر است.
+      if (Array.isArray(res.data?.items) || typeof res.data?.num_results === 'number') {
+        return {
+          valid: true,
+          user: { id: userId, username: res.data?.user?.username || cookieJar.ds_user_id },
+          method: 'timeline_feed',
+        };
       }
 
 

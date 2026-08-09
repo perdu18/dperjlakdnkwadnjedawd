@@ -616,3 +616,98 @@
 {"level":30,"time":1786159266820,"pid":6540,"hostname":"DESKTOP-H6751KA","msg":"Health OK"}
 {"level":30,"time":1786164537685,"pid":7148,"hostname":"DESKTOP-H6751KA","msg":"Health OK"}
 {"level":30,"time":1786164619070,"pid":10596,"hostname":"DESKTOP-H6751KA","msg":"Health OK"}
+{"level":30,"time":1786227128066,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1786227128066,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1786227128067,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM (teleproto)"}
+{"level":30,"time":1786227128067,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1786227128067,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1786227128068,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1786227128072,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1786227128074,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1786227128077,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Initializing services in background..."}
+{"level":30,"time":1786227128078,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1786227128078,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1786227128092,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4594}
+{"level":30,"time":1786227128093,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1786227128115,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":30,"time":1786227128763,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":2774}
+{"level":30,"time":1786227128921,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":1888}
+{"level":30,"time":1786227128956,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Proxy list updated","total":4662}
+{"level":30,"time":1786227128961,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1786227128962,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram client initialized (web-profile-first HTTP polling)","username":"academy_barfi"}
+{"level":30,"time":1786227128966,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session loaded","source":"file","fingerprint":"feb322c40fcd","cookieCount":11,"username":"academy_barfi","createdAt":"2026-08-08T03:35:04.775Z"}
+{"level":30,"time":1786227128966,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored"}
+{"level":40,"time":1786227136741,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session verification failed","verification":{"valid":false,"method":null,"checkedAt":"2026-08-08T22:12:16.741Z","reason":"Authenticated endpoints returned no recognized user payload","checks":[{"method":"current_user","error":"connect ETIMEDOUT 2001:4188:2:600:10:10:34:35:443; connect ECONNREFUSED 10.10.34.35:443"},{"method":"private_user_info","error":"connect ETIMEDOUT 2001:4188:2:600:10:10:34:35:443; connect ECONNREFUSED 10.10.34.35:443"},{"method":"account_edit","error":"connect ETIMEDOUT 2001:4188:2:600:10:10:34:35:443; connect ECONNREFUSED 10.10.34.35:443"}]}}
+{"level":50,"time":1786227136742,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Instagram initialization failed","error":"Instagram session is invalid or expired. Run: npm run setup:instagram"}
+{"level":30,"time":1786227136743,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Starting Instagram retry loop","intervalSeconds":600}
+{"level":30,"time":1786227136743,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Starting Bot Manager (independent of MTProto)..."}
+{"level":30,"time":1786227136744,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Starting Telegram Bot Manager (Bot API)","adminCount":1}
+{"level":30,"time":1786227136745,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Bot API will use direct HTTPS connection"}
+{"level":30,"time":1786227136745,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Creating TelegramBot instance..."}
+{"level":30,"time":1786227136750,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"TelegramBot instance created"}
+{"level":30,"time":1786227136750,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Command handlers registered"}
+{"level":30,"time":1786227136750,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"✓ Bot Manager started and listening for commands"}
+{"level":30,"time":1786227136750,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Calling bot.getMe()..."}
+{"level":30,"time":1786227136767,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Bot Manager ready"}
+{"level":30,"time":1786227136767,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Starting Telegram MTProto connection (background)..."}
+{"level":30,"time":1786227136770,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"TG_PROXY=auto - WSS will handle connection directly"}
+{"level":30,"time":1786227136772,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized (WSS transport)","hasSession":true,"layer":"228+ (teleproto)","transport":"WSS (PromisedWebSockets)","hasProxy":false,"proxyType":"none"}
+{"level":40,"time":1786227136772,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Instagram not logged in - polling workers disabled"}
+{"level":40,"time":1786227136772,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Fix Instagram session and restart, or run: npm run setup:instagram"}
+{"level":30,"time":1786227136773,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1786227136773,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 All services initialized! Bot is now fully running."}
+{"level":30,"time":1786227136778,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"TG_PROXY=auto detected, but WSS transport is active — skipping proxy search (WSS goes through firewalls directly)"}
+{"level":30,"time":1786227136778,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram via WSS..."}
+{"level":40,"time":1786227139336,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Bot polling error","error":"EFATAL: fetch failed","code":"EFATAL"}
+{"level":40,"time":1786227139339,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Could not get bot info (will continue anyway)","error":"EFATAL: fetch failed"}
+{"level":40,"time":1786227142151,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Bot polling error","error":"EFATAL: fetch failed","code":"EFATAL"}
+{"level":30,"time":1786227144898,"pid":3200,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}
+{"level":30,"time":1786227167580,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1786227167581,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  Instagram → Telegram Monitor Bot"}
+{"level":30,"time":1786227167581,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"  v1.0.0 - Node.js ESM (teleproto)"}
+{"level":30,"time":1786227167581,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"======================================="}
+{"level":30,"time":1786227167582,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Configuration loaded","env":"production","targetAccounts":1}
+{"level":30,"time":1786227167583,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Initializing database (node:sqlite)","path":"C:\\AdamBarfi\\instagram\\monitoring-insta\\v2\\data\\app.db"}
+{"level":30,"time":1786227167586,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Running database migrations..."}
+{"level":30,"time":1786227167587,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Database","msg":"Migrations completed"}
+{"level":30,"time":1786227167591,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Initializing services in background..."}
+{"level":30,"time":1786227167592,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Seeding tracked accounts","count":1}
+{"level":30,"time":1786227167596,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Active tracked accounts","total":1}
+{"level":30,"time":1786227167605,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Loaded cached proxy list","count":4662}
+{"level":30,"time":1786227167606,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloading proxy lists from TheSpeedX/PROXY-List..."}
+{"level":30,"time":1786227167630,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"HTTP health server listening","port":3000}
+{"level":40,"time":1786227170697,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Failed to download proxy list","url":"https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt","error":"Client network socket disconnected before secure TLS connection was established"}
+{"level":30,"time":1786227170697,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded HTTP proxies","count":0}
+{"level":40,"time":1786227173690,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Failed to download proxy list","url":"https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt","error":"Client network socket disconnected before secure TLS connection was established"}
+{"level":30,"time":1786227173691,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Downloaded SOCKS5 proxies","count":0}
+{"level":40,"time":1786227173691,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"No proxies downloaded. Keeping old list."}
+{"level":30,"time":1786227173695,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Proxy","msg":"Scheduled proxy list update","cronExpression":"0 */3 * * *"}
+{"level":30,"time":1786227173695,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram client initialized (web-profile-first HTTP polling)","username":"academy_barfi"}
+{"level":30,"time":1786227173707,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session loaded","source":"file","fingerprint":"feb322c40fcd","cookieCount":11,"username":"academy_barfi","createdAt":"2026-08-08T03:35:04.775Z"}
+{"level":30,"time":1786227173707,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session restored"}
+{"level":40,"time":1786227200663,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Instagram","msg":"Instagram session verification failed","verification":{"valid":false,"method":null,"checkedAt":"2026-08-08T22:13:20.662Z","reason":"Authenticated endpoints returned no recognized user payload","checks":[{"method":"current_user","status":404,"message":null},{"method":"private_user_info","error":"timeout of 20000ms exceeded"},{"method":"account_edit","status":404,"message":null}]}}
+{"level":50,"time":1786227200663,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Instagram initialization failed","error":"Instagram session is invalid or expired. Run: npm run setup:instagram"}
+{"level":30,"time":1786227200663,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Starting Instagram retry loop","intervalSeconds":600}
+{"level":30,"time":1786227200663,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Starting Bot Manager (independent of MTProto)..."}
+{"level":30,"time":1786227200664,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Starting Telegram Bot Manager (Bot API)","adminCount":1}
+{"level":30,"time":1786227200664,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Bot API will use direct HTTPS connection"}
+{"level":30,"time":1786227200664,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Creating TelegramBot instance..."}
+{"level":30,"time":1786227200666,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"TelegramBot instance created"}
+{"level":30,"time":1786227200666,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Command handlers registered"}
+{"level":30,"time":1786227200666,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"✓ Bot Manager started and listening for commands"}
+{"level":30,"time":1786227200666,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Calling bot.getMe()..."}
+{"level":30,"time":1786227200674,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Bot Manager ready"}
+{"level":30,"time":1786227200674,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Starting Telegram MTProto connection (background)..."}
+{"level":30,"time":1786227200676,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"TG_PROXY=auto - WSS will handle connection directly"}
+{"level":30,"time":1786227200678,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Telegram client initialized (WSS transport)","hasSession":true,"layer":"228+ (teleproto)","transport":"WSS (PromisedWebSockets)","hasProxy":false,"proxyType":"none"}
+{"level":40,"time":1786227200678,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Instagram not logged in - polling workers disabled"}
+{"level":40,"time":1786227200678,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Fix Instagram session and restart, or run: npm run setup:instagram"}
+{"level":30,"time":1786227200679,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Daily stats scheduled","hour":9}
+{"level":30,"time":1786227200679,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"🚀 All services initialized! Bot is now fully running."}
+{"level":30,"time":1786227200683,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"TG_PROXY=auto detected, but WSS transport is active — skipping proxy search (WSS goes through firewalls directly)"}
+{"level":30,"time":1786227200683,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Connecting to Telegram via WSS..."}
+{"level":40,"time":1786227203698,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Bot polling error","error":"EFATAL: fetch failed","code":"EFATAL"}
+{"level":30,"time":1786227203747,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"✓ Telegram connected via WSS","phone":"17409216751","firstName":"AdamBarfi","username":"AdamBarfi_V4","userId":"8491968448"}
+{"level":30,"time":1786227203747,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"✓ Telegram MTProto connected"}
+{"level":40,"time":1786227211383,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"Telegram","msg":"Could not get bot info (will continue anyway)","error":"EFATAL: fetch failed"}
+{"level":30,"time":1786227226265,"pid":11688,"hostname":"DESKTOP-H6751KA","module":"App","msg":"Shutting down gracefully..."}

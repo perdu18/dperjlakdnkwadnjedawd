@@ -8,11 +8,11 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node --disable-warning=ExperimentalWarning --enable-source-maps src/index.js",
     "setup:telegram": "node scripts/setup-telegram.js",
     "setup:instagram": "node scripts/setup-instagram.js",
     "setup": "npm run setup:telegram && npm run setup:instagram",
-    "daemon": "node src/index.js",
+    "daemon": "node --disable-warning=ExperimentalWarning --enable-source-maps src/index.js",
     "healthcheck": "node -e \"import('./src/utils/Logger.js').then(m => m.default.info('Health OK'))\"",
     "export-session": "node scripts/export-session-base64.js"
   },
