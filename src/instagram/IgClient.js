@@ -508,24 +508,38 @@ class IgClient {
     const authRejected = status === 401
       || status === 403
       || message.includes('login_required')
+      || message.includes('please wait a few minutes')
       || (isRedirect && redirectLocation.includes('/accounts/login'));
-    if (authRejected && mode === 'auth') {
+
+    // FIX(rate-limit-message): Instagram's "Please wait a few minutes" is
+    // actually a rate-limit response, not an auth failure. Don't invalidate
+    // the session — just apply cooldown.
+    const isRateLimitMessage = message.includes('please wait a few minutes');
+
+    if (authRejected && mode === 'auth' && !isRateLimitMessage) {
       this._markSessionInvalid(message || `HTTP ${status}`);
     }
 
     let seconds = 0;
     let reason = null;
 
-    if (status === 429 || message.includes('feedback_required') || message.includes('spam')) {
+    if (status === 429
+        || isRateLimitMessage
+        || message.includes('feedback_required')
+        || message.includes('spam')) {
       // FIX(backoff): exponential backoff for consecutive 429s
       const retryAfter = parseInt(headers?.['retry-after'] ?? headers?.['Retry-After'] ?? '', 10);
       if (Number.isFinite(retryAfter) && retryAfter > 0) {
         seconds = retryAfter;
+      } else if (isRateLimitMessage) {
+        // "Please wait a few minutes" — use longer cooldown (5 min minimum)
+        seconds = Math.max(300, BACKOFF_STEPS_SECONDS[Math.min(this._backoffIndex, BACKOFF_STEPS_SECONDS.length - 1)]);
+        this._backoffIndex++;
       } else {
         seconds = BACKOFF_STEPS_SECONDS[Math.min(this._backoffIndex, BACKOFF_STEPS_SECONDS.length - 1)];
         this._backoffIndex++;
       }
-      reason = `${mode}:HTTP ${status}`;
+      reason = `${mode}:HTTP ${status}${isRateLimitMessage ? ' (rate-limited)' : ''}`;
     } else if (message.includes('challenge_required') || message.includes('checkpoint_required')) {
       seconds = Math.max(config.antiDetect.challengeCooldown, CHECKPOINT_COOLDOWN_SECONDS);
       reason = `checkpoint_required (manual challenge needed in IG app)`;

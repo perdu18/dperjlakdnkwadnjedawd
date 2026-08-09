@@ -298,29 +298,57 @@ class TgClient {
 
   /**
    * Load saved session string
+   *
+   * FIX(session-loading): اولویت‌ها:
+   *   1. TG_SESSION_STRING env var (پیشنهادی برای Railway — امن‌تر)
+   *   2. فایل session در sessionDir
+   *
+   * نکته مهم: فایل session باید حاوی StringSession باشد (رشته‌ای که با "1" شروع می‌شود).
+   * اگه فایل باینری است (مثلاً از GramJS)، باید اول به StringSession تبدیل شود.
    */
   _loadSession() {
-    // Try file first
+    // FIX: اولویت با env var — در Railway این امن‌تر است چون فایل‌ها در volume
+    // ممکن است پاک شوند. اگه env var هست، از آن استفاده کن و فایل را ignore کن.
+    const envSession = process.env.TG_SESSION_STRING;
+    if (envSession && envSession.trim()) {
+      const trimmed = envSession.trim();
+      if (trimmed.startsWith('1') && trimmed.length > 50) {
+        this.sessionString = trimmed;
+        log.info('Loaded Telegram session from TG_SESSION_STRING env var');
+        return;
+      }
+      log.warn({
+        msg: 'TG_SESSION_STRING exists but does not look like a valid StringSession',
+        length: trimmed.length,
+        startsWith1: trimmed.startsWith('1'),
+      });
+    }
+
+    // Try file
     if (existsSync(this.sessionFilePath)) {
       try {
         const content = readFileSync(this.sessionFilePath, 'utf8').trim();
         if (content.startsWith('1') && content.length > 50) {
-          // Looks like a valid StringSession
           this.sessionString = content;
-          log.debug('Loaded session from file');
+          log.info({ msg: 'Loaded Telegram session from file', path: this.sessionFilePath });
           return;
         }
+        log.warn({
+          msg: 'Telegram session file exists but is not a valid StringSession',
+          path: this.sessionFilePath,
+          contentLength: content.length,
+          startsWith1: content.startsWith('1'),
+          hint: 'Run: npm run setup:telegram to generate a valid StringSession, or set TG_SESSION_STRING env var',
+        });
       } catch (e) {
         log.warn({ msg: 'Could not load session file', error: e.message });
       }
     }
 
-    // Try env var
-    const envSession = process.env.TG_SESSION_STRING;
-    if (envSession) {
-      this.sessionString = envSession;
-      log.debug('Loaded session from env var');
-    }
+    log.error({
+      msg: 'No Telegram session found',
+      hint: 'Set TG_SESSION_STRING env var in Railway, or run: npm run setup:telegram locally and commit the session file',
+    });
   }
 
   /**
