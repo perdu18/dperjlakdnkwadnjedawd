@@ -161,19 +161,46 @@ class SendWorker {
     try {
       // Refresh statistics immediately before sending. Failures use the queued
       // snapshot so a temporary Instagram API issue does not discard the post.
+      // FIX(stats-preservation): Instagram returns 0 for follower_count when
+      // the logged-in account doesn't follow the target. We preserve existing
+      // DB values instead of overwriting with 0.
       try {
         const profile = await igClient.getUserByUsername(account.username, { force: false });
-        TrackedAccountsRepository.updateProfile(account.username, profile);
+
+        // FIX: Only update stats if the new values are non-zero
+        // (Instagram returns 0 for non-followed accounts)
+        const mergedProfile = {
+          pk: profile.pk || account.pk,
+          fullName: profile.fullName || account.full_name,
+          profilePicUrl: profile.profilePicUrl || account.profile_pic_url,
+          isPrivate: profile.isPrivate ?? (account.is_private === 1),
+          isVerified: profile.isVerified ?? (account.is_verified === 1),
+          // Preserve existing non-zero values if new value is 0
+          followerCount: profile.followerCount || account.follower_count || 0,
+          followingCount: profile.followingCount || account.following_count || 0,
+          mediaCount: profile.mediaCount || account.media_count || 0,
+          biography: profile.biography || account.biography,
+        };
+
+        TrackedAccountsRepository.updateProfile(account.username, mergedProfile);
         Object.assign(account, {
-          pk: profile.pk,
-          full_name: profile.fullName,
-          profile_pic_url: profile.profilePicUrl,
-          is_private: profile.isPrivate ? 1 : 0,
-          is_verified: profile.isVerified ? 1 : 0,
-          follower_count: profile.followerCount,
-          following_count: profile.followingCount,
-          media_count: profile.mediaCount,
-          biography: profile.biography,
+          pk: mergedProfile.pk,
+          full_name: mergedProfile.fullName,
+          profile_pic_url: mergedProfile.profilePicUrl,
+          is_private: mergedProfile.isPrivate ? 1 : 0,
+          is_verified: mergedProfile.isVerified ? 1 : 0,
+          follower_count: mergedProfile.followerCount,
+          following_count: mergedProfile.followingCount,
+          media_count: mergedProfile.mediaCount,
+          biography: mergedProfile.biography,
+        });
+
+        log.debug({
+          msg: 'Profile stats (post-refresh)',
+          username: account.username,
+          followers: account.follower_count,
+          following: account.following_count,
+          posts: account.media_count,
         });
       } catch (e) {
         log.warn({

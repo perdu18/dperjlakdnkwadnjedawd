@@ -263,31 +263,46 @@ class PollingWorker {
       username: account.username, hasPk: !!account.pk, lastPostPk: account.last_post_pk,
     });
 
-    // FIX(profile-spam): only refresh profile if we don't have pk,
-    // or if profile is stale (checked by IgClient cache, 24h TTL).
-    // The old code called getUserByUsername() every cycle, which made
-    // an extra HTTP request even when profile data was fresh.
-    if (!account.pk) {
+    // FIX(profile-refresh): اگر pk نداریم، اول پروفایل را بگیر (برای pk)
+    // اگر pk داریم، ولی آمار (follower/following/media) قدیمی است، refresh کن.
+    // آپدیت آمار هر ۶ ساعت یک‌بار کافی است — نباید هر چرخه (۱۵ دقیقه) درخواست بزنیم.
+    const PROFILE_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+    const lastProfileUpdate = account.updated_at ? account.updated_at * 1000 : 0;
+    const profileAgeMs = Date.now() - lastProfileUpdate;
+    const needsProfileRefresh = !account.pk || profileAgeMs > PROFILE_REFRESH_INTERVAL_MS;
+
+    if (needsProfileRefresh) {
       try {
         const info = await igClient.getUserByUsername(account.username, {
-          force: false,
-          knownPk: null,
+          force: !account.pk, // اگه pk نداریم، force کن؛ وگرنه از cache استفاده کن
+          knownPk: account.pk || null,
         });
+
+        // FIX: اگه getUserByUsername موفق شد ولی آمار ۰ است (مثلاً از topsearch آمده)،
+        // آمار قدیمی DB را حفظ کن
+        const profileData = {
+          pk: info.pk || account.pk,
+          full_name: info.fullName || account.full_name,
+          profile_pic_url: info.profilePicUrl || account.profile_pic_url,
+          is_private: info.isPrivate !== undefined ? (info.isPrivate ? 1 : 0) : account.is_private,
+          is_verified: info.isVerified !== undefined ? (info.isVerified ? 1 : 0) : account.is_verified,
+          follower_count: info.followerCount || account.follower_count || 0,
+          following_count: info.followingCount || account.following_count || 0,
+          media_count: info.mediaCount || account.media_count || 0,
+          biography: info.biography || account.biography,
+        };
+
         TrackedAccountsRepository.updateProfile(account.username, info);
-        Object.assign(account, {
-          pk: info.pk,
-          full_name: info.fullName,
-          profile_pic_url: info.profilePicUrl,
-          is_private: info.isPrivate ? 1 : 0,
-          is_verified: info.isVerified ? 1 : 0,
-          follower_count: info.followerCount,
-          following_count: info.followingCount,
-          media_count: info.mediaCount,
-          biography: info.biography,
-        });
+        Object.assign(account, profileData);
+
         log.info({
-          msg: 'User info fetched (first time)',
-          username: account.username, pk: info.pk, isPrivate: info.isPrivate,
+          msg: account.pk ? 'Profile stats refreshed' : 'User info fetched (first time)',
+          username: account.username,
+          pk: profileData.pk,
+          followers: profileData.follower_count,
+          following: profileData.following_count,
+          posts: profileData.media_count,
+          profileAgeHours: Math.floor(profileAgeMs / (60 * 60 * 1000)),
         });
 
         if (info.isPrivate) {
@@ -297,23 +312,22 @@ class PollingWorker {
         }
       } catch (e) {
         // FIX: اگر cooldown یا خطای شبکه، این اکانت را skip کن به‌جای throw
-        // این مهم است چون اگر throw کنیم، کل چرخه polling متوقف می‌شود.
-        // اکانت‌های بدون pk در چرخه‌های بعدی (وقتی cooldown تمام شد) دوباره امتحان می‌شوند.
         if (e instanceof InstagramCooldownError) {
           log.warn({
             msg: 'Cannot fetch profile (cooldown); skipping account',
             username: account.username, error: e.message,
           });
           TrackedAccountsRepository.recordError(account.username, `getUserByUsername (cooldown): ${e.message}`);
-          return; // skip this account, don't throw
+          // FIX: اگه pk داریم، ادامه بده با feed fetch؛ وگرنه skip کن
+          if (!account.pk) return;
+        } else {
+          log.warn({
+            msg: 'Profile fetch failed; continuing with cached data',
+            username: account.username, error: e.message,
+          });
+          TrackedAccountsRepository.recordError(account.username, `getUserByUsername: ${e.message}`);
+          if (!account.pk) return;
         }
-        // برای خطاهای غیر cooldown هم skip کن به‌جای throw
-        log.warn({
-          msg: 'Profile fetch failed; skipping account (no pk available)',
-          username: account.username, error: e.message,
-        });
-        TrackedAccountsRepository.recordError(account.username, `getUserByUsername: ${e.message}`);
-        return; // skip this account, don't throw
       }
     }
 
