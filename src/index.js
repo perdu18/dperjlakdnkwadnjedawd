@@ -245,6 +245,9 @@ try {
 
 /**
  * Add accounts from TARGET_ACCOUNTS env var to DB
+ * FIX(known-pks): از متغیر KNOWN_ACCOUNT_PKS برای تنظیم PK استفاده می‌کند
+ * این متغیر فرمت: "username1=pk1,username2=pk2,..." دارد
+ * مثال: KNOWN_ACCOUNT_PKS=botfoori=62110858059,ba3iraa=76026823321,rasanknews=8500532298
  */
 async function seedTrackedAccounts() {
   const accounts = config.monitoring.targetAccounts;
@@ -254,18 +257,45 @@ async function seedTrackedAccounts() {
     return;
   }
 
+  // FIX: Parse KNOWN_ACCOUNT_PKS env var
+  // فرمت: username1=pk1,username2=pk2,...
+  const knownPksRaw = (process.env.KNOWN_ACCOUNT_PKS || '').trim();
+  const knownPksMap = new Map();
+  if (knownPksRaw) {
+    for (const pair of knownPksRaw.split(',')) {
+      const [uname, pk] = pair.split('=').map(s => s.trim());
+      if (uname && pk && /^\d+$/.test(pk)) {
+        knownPksMap.set(uname.toLowerCase(), pk);
+      }
+    }
+    log.info({ msg: 'Loaded known PKs from env', count: knownPksMap.size });
+  }
+
   log.info({ msg: 'Seeding tracked accounts', count: accounts.length });
 
   const failures = [];
   for (const username of accounts) {
     try {
-      // FIX(bug6): add() حالا is_active = 1 را هم روی conflict ست می‌کند،
-      // پس اکانتِ قبلاً pause شده دوباره فعال می‌شود
-      TrackedAccountsRepository.add(username, { activate: true });
+      // FIX(bug6): add() حالا is_active = 1 را هم روی conflict ست می‌کند
+      const knownPk = knownPksMap.get(username.toLowerCase());
+      TrackedAccountsRepository.add(username, {
+        activate: true,
+        pk: knownPk || null,
+      });
       const row = TrackedAccountsRepository.getByUsername(username);
       if (!row) throw new Error('row not found right after insert');
       if (!row.is_active) TrackedAccountsRepository.setActive(username, true);
-      log.info({ msg: 'Account seeded', username, id: row.id });
+
+      // FIX: اگر PK داریم ولی در row نیست، آپدیت کن
+      if (knownPk && !row.pk) {
+        TrackedAccountsRepository.updatePk(username, knownPk);
+        log.info({ msg: 'Account seeded with known PK', username, pk: knownPk });
+      } else if (knownPk && row.pk !== knownPk) {
+        TrackedAccountsRepository.updatePk(username, knownPk);
+        log.info({ msg: 'Account PK updated from env', username, oldPk: row.pk, newPk: knownPk });
+      } else {
+        log.info({ msg: 'Account seeded', username, id: row.id, hasPk: !!row.pk });
+      }
     } catch (e) {
       failures.push({ username, error: e.message });
       log.error({ msg: 'Could not add account', username, error: e.message });
