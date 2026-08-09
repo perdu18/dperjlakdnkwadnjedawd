@@ -296,13 +296,35 @@ class PollingWorker {
           return;
         }
       } catch (e) {
-        TrackedAccountsRepository.recordError(account.username, `getUserByUsername: ${e.message}`);
-        if (!account.pk) throw e;
+        // FIX: اگر cooldown یا خطای شبکه، این اکانت را skip کن به‌جای throw
+        // این مهم است چون اگر throw کنیم، کل چرخه polling متوقف می‌شود.
+        // اکانت‌های بدون pk در چرخه‌های بعدی (وقتی cooldown تمام شد) دوباره امتحان می‌شوند.
+        if (e instanceof InstagramCooldownError) {
+          log.warn({
+            msg: 'Cannot fetch profile (cooldown); skipping account',
+            username: account.username, error: e.message,
+          });
+          TrackedAccountsRepository.recordError(account.username, `getUserByUsername (cooldown): ${e.message}`);
+          return; // skip this account, don't throw
+        }
+        // برای خطاهای غیر cooldown هم skip کن به‌جای throw
         log.warn({
-          msg: 'Profile fetch failed; continuing with cached account data',
+          msg: 'Profile fetch failed; skipping account (no pk available)',
           username: account.username, error: e.message,
         });
+        TrackedAccountsRepository.recordError(account.username, `getUserByUsername: ${e.message}`);
+        return; // skip this account, don't throw
       }
+    }
+
+    // اگر هنوز pk نداریم، نمی‌توانیم feed بگیریم
+    if (!account.pk) {
+      log.warn({
+        msg: 'No pk available for account; skipping feed fetch',
+        username: account.username,
+        hint: 'Run: node scripts/seed-account-pks.js to manually set PKs in DB',
+      });
+      return;
     }
 
     // Fetch recent posts

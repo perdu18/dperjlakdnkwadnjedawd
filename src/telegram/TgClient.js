@@ -87,7 +87,10 @@ class TgClient {
         // این مهم‌ترین تنظیم برای اتصال از Railway به تلگرام هست
         networkSocket: PromisedWebSockets,
 
-        connectionRetries: 10,
+        // FIX: کاهش retries از 10 به 3 — قبلاً 10 retry × 10s timeout = 100s
+        // قبل از fail شدن. حالا 3 × 10s = 30s، سریع‌تر fail می‌شود و
+        // fallback به SOCKS5 proxy می‌رسد.
+        connectionRetries: 3,
         retryDelay: 2000,
         autoReconnect: true,
         floodSleepThreshold: 300, // FIX(bug11): FLOOD_WAIT ارسال به کانال معمولاً > 60s است
@@ -366,11 +369,15 @@ class TgClient {
   /**
    * Connect (using saved session)
    *
-   * با WSS transport، تلگرام مستقیم وصل میشه و نیازی به پروکسی نیست.
-   * WSS مثل HTTPS از فایروال‌ها عبور می‌کنه.
+   * FIX(connection-strategy): روی ویندوز محلی (به‌ویژه ایران)، اتصال مستقیم
+   * به سرورهای تلگرام (حتی WSS) معمولاً توسط ISP مسدود می‌شود.
    *
-   * اگه TG_PROXY=auto باشه ولی WSS فعال باشه، auto-find رو skip می‌کنیم
-   * چون WSS خودش کافیه.
+   * استراتژی جدید:
+   *   1. اگر TG_PROXY=auto: ابتدا تلاش مستقیم WSS، اگر fail شد، SOCKS5 پیدا کن
+   *   2. اگر TG_PROXY=socks5://...: مستقیم از همان پروکسی استفاده کن
+   *   3. اگر TG_PROXY خالی: فقط تلاش مستقیم (شاید fail شود در ایران)
+   *
+   * این تغییر مهم است چون قبلاً با TG_PROXY=auto، پروکسی اصلاً امتحان نمی‌شد.
    */
   async connect() {
     if (!this.client) await this.init();
@@ -385,24 +392,8 @@ class TgClient {
     const tgProxy = (config.telegram.proxy || process.env.TG_PROXY || '').trim();
     const isAutoProxy = tgProxy === 'auto';
 
-    // اگه TG_PROXY=auto باشه، ولی ما از WSS استفاده می‌کنیم،
-    // نیازی به پروکسی نیست — WSS خودش از فایروال‌ها عبور می‌کنه
-    // پس auto-find رو skip می‌کنیم
-    if (isAutoProxy) {
-      log.info('TG_PROXY=auto detected, but WSS transport is active — skipping proxy search (WSS goes through firewalls directly)');
-      // Force no proxy
-      this._autoFoundProxy = null;
-    } else if (tgProxy && tgProxy !== 'auto') {
-      // اگه پروکسی مشخص شده، از اون استفاده کن
-      log.info({ msg: 'Using explicit TG_PROXY', proxy: tgProxy.slice(0, 30) });
-      const proxyConfig = this._parseProxyUrl(tgProxy);
-      if (proxyConfig) {
-        this._autoFoundProxy = { teleprotoConfig: proxyConfig };
-        await this.init();  // Recreate client with proxy
-      }
-    }
-
-    log.info('Connecting to Telegram via WSS...');
+    // FIX: استراتژی اتصال — اول مستقیم WSS، اگه fail شد و auto بود، SOCKS5 پیدا کن
+    log.info('Connecting to Telegram via WSS (direct attempt)...');
     this.connectionAttempts++;
 
     try {
@@ -417,7 +408,7 @@ class TgClient {
       this.lastError = null;
 
       log.info({
-        msg: '✓ Telegram connected via WSS',
+        msg: '✓ Telegram connected via WSS (direct)',
         phone: this.me.phone,
         firstName: this.me.firstName,
         username: this.me.username,
@@ -425,12 +416,102 @@ class TgClient {
       });
 
       return true;
-    } catch (e) {
-      this.lastError = e.message;
-      this.lastErrorAt = new Date().toISOString();
-      log.error({ msg: 'Telegram WSS connection failed', error: e.message });
+    } catch (directError) {
+      log.warn({
+        msg: 'Direct WSS connection failed (likely blocked by ISP/firewall)',
+        error: directError.message,
+        willTryProxy: isAutoProxy,
+      });
 
-      // Don't throw — let the bot continue running
+      // FIX: اگر auto است، حالا یک SOCKS5 پیدا کن و دوباره تلاش کن
+      if (isAutoProxy) {
+        log.info('TG_PROXY=auto — searching for working SOCKS5 proxy...');
+
+        try {
+          const proxyConfig = await this._buildProxyConfigWithAutoFind(true);
+          if (proxyConfig) {
+            log.info({
+              msg: 'Retrying Telegram connection via SOCKS5 proxy',
+              host: proxyConfig.ip,
+              port: proxyConfig.port,
+            });
+
+            // Recreate client with proxy
+            this._autoFoundProxy = { teleprotoConfig: proxyConfig };
+            await this.init();
+
+            this.connectionAttempts++;
+            await this.client.connect();
+
+            if (!(await this.client.isUserAuthorized())) {
+              throw new Error('Session is not authorized. Run `npm run setup:telegram` again.');
+            }
+
+            this.me = await this.client.getMe();
+            this.isConnected = true;
+            this.lastError = null;
+
+            log.info({
+              msg: '✓ Telegram connected via SOCKS5 proxy',
+              phone: this.me.phone,
+              firstName: this.me.firstName,
+              username: this.me.username,
+              userId: this.me.id.toString(),
+              proxyHost: proxyConfig.ip,
+            });
+
+            return true;
+          } else {
+            log.error('Could not find any working SOCKS5 proxy');
+          }
+        } catch (proxyError) {
+          log.error({
+            msg: 'Telegram SOCKS5 proxy connection also failed',
+            error: proxyError.message,
+          });
+        }
+      }
+
+      // If we have explicit TG_PROXY (not auto), retry with it
+      if (tgProxy && tgProxy !== 'auto' && !tgProxy.includes('user:pass@host:port')) {
+        log.info({ msg: 'Retrying with explicit TG_PROXY', proxy: tgProxy.slice(0, 30) });
+        const proxyConfig = this._parseProxyUrl(tgProxy);
+        if (proxyConfig) {
+          this._autoFoundProxy = { teleprotoConfig: proxyConfig };
+          await this.init();
+
+          try {
+            this.connectionAttempts++;
+            await this.client.connect();
+
+            if (!(await this.client.isUserAuthorized())) {
+              throw new Error('Session is not authorized.');
+            }
+
+            this.me = await this.client.getMe();
+            this.isConnected = true;
+            this.lastError = null;
+
+            log.info({
+              msg: '✓ Telegram connected via explicit proxy',
+              username: this.me.username,
+              proxyHost: proxyConfig.ip,
+            });
+
+            return true;
+          } catch (proxyError) {
+            log.error({ msg: 'Explicit proxy also failed', error: proxyError.message });
+          }
+        }
+      }
+
+      this.lastError = `Telegram connection failed: ${directError.message}. ` +
+        (isAutoProxy ? 'Auto SOCKS5 search also failed. ' : '') +
+        'Try setting TG_PROXY=socks5://user:pass@host:port with a working proxy.';
+      this.lastErrorAt = new Date().toISOString();
+      log.error({ msg: this.lastError });
+
+      // Don't throw — let the bot continue running (Bot Manager still works)
       return false;
     }
   }

@@ -789,8 +789,25 @@ class IgClient {
       return this._normalizeWebProfileUser(webUser);
     } catch (e) {
       webError = e;
-      if (e instanceof InstagramCooldownError || e instanceof InstagramAuthError) throw e;
-      log.warn({ msg: 'Web profile lookup failed; trying private user info', username, error: e.message });
+      if (e instanceof InstagramCooldownError) {
+        // FIX: اگر cooldown است، topsearch را امتحان کن (معمولاً کار می‌کند)
+        log.warn({ msg: 'web_profile_info rate-limited; trying topsearch', username, error: e.message });
+        const searchUser = await this._getUserViaTopSearch(username);
+        if (searchUser) {
+          log.info({ msg: 'User found via topsearch', username, pk: searchUser.pk });
+          return searchUser;
+        }
+        throw e;
+      }
+      if (e instanceof InstagramAuthError) throw e;
+      log.warn({ msg: 'Web profile lookup failed; trying topsearch', username, error: e.message });
+
+      // FIX: topsearch را به‌عنوان fallback امتحان کن
+      const searchUser = await this._getUserViaTopSearch(username);
+      if (searchUser) {
+        log.info({ msg: 'User found via topsearch', username, pk: searchUser.pk });
+        return searchUser;
+      }
     }
 
     // Last resort: authenticated /users/{pk}/info/
@@ -820,6 +837,56 @@ class IgClient {
       mediaCount: user.media_count ?? 0,
       biography: user.biography ?? null,
     };
+  }
+
+  /**
+   * FIX(topsearch): وقتی web_profile_info محدود (۴۲۹) می‌شود، topsearch معمولاً کار می‌کند.
+   * این متد از /web/search/topsearch/ برای پیدا کردن PK و اطلاعات پایه استفاده می‌کند.
+   *
+   * نکته: topsearch اطلاعات کامل (follower count, biography) نمی‌دهد، ولی PK و
+   * اطلاعات پایه کافی برای fetch feed است.
+   */
+  async _getUserViaTopSearch(username) {
+    const axiosToUse = this.authAxios || this.publicAxios;
+    if (!axiosToUse) return null;
+
+    try {
+      const response = await axiosToUse.get(`${IG_API}/web/search/topsearch/`, {
+        params: {
+          context: 'blended',
+          query: username,
+          include_reel: true,
+        },
+        headers: { 'Referer': `${IG_BASE}/` },
+      });
+
+      if (response.status !== 200) return null;
+
+      const users = response.data?.users || [];
+      const match = users.find(u =>
+        u?.user?.username?.toLowerCase() === username.toLowerCase()
+      );
+
+      if (!match?.user) return null;
+
+      const u = match.user;
+      return {
+        pk: u.pk,
+        username: u.username,
+        fullName: u.full_name || '',
+        isPrivate: u.is_private || false,
+        isVerified: u.is_verified || false,
+        profilePicUrl: u.profile_pic_url || '',
+        followerCount: 0,  // topsearch نمی‌دهد
+        followingCount: 0,
+        mediaCount: 0,
+        biography: null,
+      };
+    } catch (e) {
+      if (e instanceof InstagramCooldownError) throw e;
+      log.warn({ msg: 'topsearch failed', username, error: e.message });
+      return null;
+    }
   }
 
   _assertApiResponse(response, context) {
@@ -909,12 +976,15 @@ class IgClient {
   }
 
   /**
-   * Fetch user feed. Tries public web_profile_info first (no auth),
-   * falls back to authenticated private feed endpoint.
+   * Fetch user feed. Strategy:
+   *   1. If we have userPk, go DIRECTLY to /feed/user/{pk}/ (most reliable)
+   *   2. If no pk, try web_profile_info to get pk + posts
+   *   3. Fall back to /feed/user/{pk}/ if web_profile_info fails
    *
-   * The web_profile_info response includes edge_owner_to_timeline_media
-   * which contains the ~12 most recent posts. This is sufficient for
-   * monitoring — we only need to detect NEW posts since last check.
+   * FIX(feed-strategy): Previously, if web_profile_info returned 429,
+   * the entire getUserFeed() failed immediately — even though /feed/user/{pk}/
+   * works perfectly and returns full post data. Now we skip web_profile_info
+   * entirely if we already have userPk (from DB cache).
    */
   async getUserFeed(pkOrUsername, options = {}) {
     const { limit = 10, afterPk = null, userPk = null } = options;
@@ -936,48 +1006,69 @@ class IgClient {
       return cachedFeed.posts;
     }
 
-    // ── Strategy 1: Public web_profile_info (NO AUTH NEEDED) ──
-    try {
-      const webUser = await this._getPublicWebProfile(username);
-      userInfo = webUser;
-      resolvedPk = resolvedPk || webUser.id || webUser.pk;
-
-      const edges = webUser.edge_owner_to_timeline_media?.edges;
-      if (Array.isArray(edges)) {
-        webPosts = this._sortAndDedupePosts(
-          edges.map(edge => ({ ...this._normalizeGraphNode(edge.node, webUser), source: 'web_profile_info' })),
-          limit
+    // ── FIX: If we already have userPk, skip web_profile_info entirely ──
+    // web_profile_info is often rate-limited (429) even when /feed/user/ works.
+    // Going directly to /feed/user/ saves a request AND avoids triggering cooldown.
+    if (resolvedPk && this.authAxios && this.isLoggedIn) {
+      try {
+        const privatePosts = await this._getFeedViaUserEndpoint(
+          resolvedPk, username,
+          Math.max(limit, canonicalAfterPk ? 50 : limit),
+          userInfo, canonicalAfterPk
         );
-        successfulSource = true;
-
-        const containsWatermark = canonicalAfterPk && webPosts.some(p =>
-          String(p.pk).split('_')[0] === canonicalAfterPk);
-
-        if (webPosts.length > 0 && (!canonicalAfterPk || containsWatermark)) {
-          log.info({ msg: 'Feed fetched via public web profile (no auth)', username, count: webPosts.length });
-          this._feedCache.set(feedCacheKey, { posts: webPosts, fetchedAt: Date.now() });
-          return webPosts;
+        if (privatePosts.length > 0) {
+          log.info({ msg: 'Feed fetched directly via /feed/user/ (skipped web_profile_info)', username, count: privatePosts.length });
+          this._feedCache.set(feedCacheKey, { posts: privatePosts, fetchedAt: Date.now() });
+          return privatePosts;
         }
-
-        log.warn({
-          msg: 'Web timeline needs private-feed recovery',
-          username, count: webPosts.length, watermarkFound: containsWatermark,
-        });
-      } else {
-        errors.push('web_profile_info: no timeline edges');
+        // If 0 items, try web_profile_info as a secondary source
+        log.warn({ msg: 'feed/user returned 0 items; trying web_profile_info', username });
+      } catch (e) {
+        if (e instanceof InstagramCooldownError) throw e;
+        errors.push(`private_feed: ${e.message}`);
+        log.warn({ msg: 'Private feed failed; trying web_profile_info', username, error: e.message });
       }
-    } catch (e) {
-      if (e instanceof InstagramCooldownError) throw e;
-      errors.push(`web_profile_info: ${e.message}`);
-      log.warn({ msg: 'Web profile feed failed; trying private feed', username, error: e.message });
     }
 
-    // ── Strategy 2: Authenticated private feed (fallback) ──
+    // ── Strategy: web_profile_info (to get pk if we don't have it) ──
     if (!resolvedPk) {
-      if (successfulSource) {
-        this._feedCache.set(feedCacheKey, { posts: webPosts, fetchedAt: Date.now() });
-        return this._sortAndDedupePosts(webPosts, 50);
+      try {
+        const webUser = await this._getPublicWebProfile(username);
+        userInfo = webUser;
+        resolvedPk = resolvedPk || webUser.id || webUser.pk;
+
+        const edges = webUser.edge_owner_to_timeline_media?.edges;
+        if (Array.isArray(edges) && edges.length > 0) {
+          webPosts = this._sortAndDedupePosts(
+            edges.map(edge => ({ ...this._normalizeGraphNode(edge.node, webUser), source: 'web_profile_info' })),
+            limit
+          );
+          successfulSource = true;
+
+          const containsWatermark = canonicalAfterPk && webPosts.some(p =>
+            String(p.pk).split('_')[0] === canonicalAfterPk);
+
+          if (webPosts.length > 0 && (!canonicalAfterPk || containsWatermark)) {
+            log.info({ msg: 'Feed fetched via web_profile_info', username, count: webPosts.length });
+            this._feedCache.set(feedCacheKey, { posts: webPosts, fetchedAt: Date.now() });
+            return webPosts;
+          }
+        } else {
+          errors.push('web_profile_info: no timeline edges (Instagram may be throttling)');
+        }
+      } catch (e) {
+        // FIX: Don't throw on cooldown — try /feed/user/ first if we now have pk
+        if (e instanceof InstagramCooldownError && !resolvedPk) {
+          // We don't have pk and can't get it — must fail
+          throw e;
+        }
+        errors.push(`web_profile_info: ${e.message}`);
+        log.warn({ msg: 'Web profile fetch failed', username, error: e.message });
       }
+    }
+
+    // ── Final fallback: /feed/user/{pk}/ ──
+    if (!resolvedPk) {
       throw new Error(`No Instagram pk available for @${username}: ${errors.join(' | ')}`);
     }
 
