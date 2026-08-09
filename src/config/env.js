@@ -90,8 +90,10 @@ const config = {
   // Monitoring
 monitoring: {
   targetAccounts: getList('TARGET_ACCOUNTS'),
-  pollIntervalPosts: getInt('POLL_INTERVAL_POSTS', 300),      // FIX: 180 -> 300
-  pollIntervalStories: getInt('POLL_INTERVAL_STORIES', 420),  // FIX: 240 -> 420
+  // v2 PROFESSIONAL: 15-min posts, 30-min stories (was 50s/90s in v1!)
+  // Based on InstaMonitorBot (GitHub) and instagrapi best practices.
+  pollIntervalPosts: getInt('POLL_INTERVAL_POSTS', 900),      // 15 min default
+  pollIntervalStories: getInt('POLL_INTERVAL_STORIES', 1800),  // 30 min default
   feedFetchLimit: getInt('FEED_FETCH_LIMIT', 12),
   keywordFilter: getList('KEYWORD_FILTER'),
   hashtagFilter: getList('HASHTAG_FILTER'),
@@ -125,15 +127,18 @@ monitoring: {
 
   // Anti-detection
 antiDetect: {
-  requestDelayMin: getInt('REQUEST_DELAY_MIN', 3000),   // FIX: 2000 -> 3000
-  requestDelayMax: getInt('REQUEST_DELAY_MAX', 7000),   // FIX: 5000 -> 7000
+  // v2: 5-10 sec between requests (was 2-5 sec in v1, too aggressive)
+  requestDelayMin: getInt('REQUEST_DELAY_MIN', 5000),
+  requestDelayMax: getInt('REQUEST_DELAY_MAX', 10000),
   rotateUserAgent: getBool('ROTATE_USER_AGENT', false),
   logoutAfterRequest: getBool('LOGOUT_AFTER_REQUEST', false),
   rateLimitCooldown: getInt('IG_RATE_LIMIT_COOLDOWN', 15 * 60),
   challengeCooldown: getInt('IG_CHALLENGE_COOLDOWN', 60 * 60),
   reconnectInterval: getInt('IG_RECONNECT_INTERVAL', 10 * 60),
-  scheduleJitterPercent: getInt('SCHEDULE_JITTER_PERCENT', 15),
-  profileCacheTtl: getInt('IG_PROFILE_CACHE_TTL', 600),  // FIX: کلید جدید (ثانیه)
+  scheduleJitterPercent: getInt('SCHEDULE_JITTER_PERCENT', 20),  // v2: 20% jitter (was 15%)
+  // v2: profile cache 24h (was 10 min!) — profile data rarely changes
+  // This eliminates 1 extra request per account per poll cycle.
+  profileCacheTtl: getInt('IG_PROFILE_CACHE_TTL', 86400),  // 24 hours
 },
 
   // Logging
