@@ -85,22 +85,34 @@ class PollingWorker {
   _schedulePoll(kind, delayMs = null) {
     if (!this.isRunning) return;
     const isPosts = kind === 'posts';
-    const intervalSeconds = isPosts
+
+    // FIX(env-guard): اگر .env قدیمی فواصل تهاجمی‌تر از حد امن دارد،
+    // حداقل امن را اعمال کن. این محافظ در برابر .env اشتباه در Railway است.
+    // حداقل امن: پست‌ها ۵ دقیقه، استوری‌ها ۱۰ دقیقه.
+    const minSafeIntervalSec = isPosts ? 300 : 600;
+    const configuredIntervalSec = isPosts
       ? config.monitoring.pollIntervalPosts
       : config.monitoring.pollIntervalStories;
+    const intervalSeconds = Math.max(minSafeIntervalSec, configuredIntervalSec);
+
     const jitter = Math.max(0, Math.min(50, config.antiDetect.scheduleJitterPercent));
     const factor = 1 + ((Math.random() * 2 - 1) * jitter / 100);
     let nextDelay = delayMs ?? Math.max(15_000, Math.round(intervalSeconds * 1000 * factor));
 
     // FIX(cooldown): if Instagram is in cooldown, postpone ALL polling
-    // until cooldown expires + 5 min buffer. This prevents the futile
-    // retry storm where every account fails with the same cooldown error.
+    // until cooldown expires + 5 min buffer.
     const cooldownMs = igClient.getCooldownRemainingMs?.() ?? 0;
     if (delayMs === null && cooldownMs > 0) {
       nextDelay = Math.max(nextDelay, cooldownMs + 5_000 + Math.floor(Math.random() * 10_000));
       log.warn({
         msg: 'Instagram cooldown active; postponing poll',
         kind, nextDelayMs: nextDelay, cooldownRemainingMs: cooldownMs,
+        envGuardApplied: configuredIntervalSec < minSafeIntervalSec,
+      });
+    } else if (configuredIntervalSec < minSafeIntervalSec) {
+      log.warn({
+        msg: 'env-guard: polling interval too aggressive; using safe minimum',
+        kind, configuredSec: configuredIntervalSec, appliedSec: intervalSeconds,
       });
     }
 

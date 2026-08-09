@@ -449,6 +449,14 @@ class IgClient {
   // ═══════════════════════════════════════════════════════════════
 
   async _paceRequest(mode) {
+    // FIX: اگر cooldown قبلاً expire شده ولی reason هنوز مانده، پاک کن
+    // (این باعث می‌شود cooldownReason در /debug بعد از expire خالی بشود،
+    // نه اینکه مقدار قبلی نمایش داده شود)
+    if (this._cooldownUntil <= Date.now() && this._cooldownReason) {
+      this._cooldownReason = null;
+      this._backoffIndex = 0;
+    }
+
     // If cooldown is too long, fail fast instead of blocking
     const cooldownRemaining = this._cooldownUntil - Date.now();
     if (cooldownRemaining > MAX_INLINE_WAIT_MS) {
@@ -463,19 +471,16 @@ class IgClient {
         await sleep(waitMs);
       }
 
-      // Random delay between requests (anti-detection)
-      const min = Math.max(500, config.antiDetect.requestDelayMin);
-      const max = Math.max(min, config.antiDetect.requestDelayMax);
-      this._nextRequestAt = Date.now() + min + Math.floor(Math.random() * (max - min + 1));
+      // FIX(min-delay): حداقل 3 ثانیه بین درخواست‌ها، حتی اگه .env قدیمی
+      // مقدار کمتر داده باشد. این محافظ در برابر .env اشتباه در Railway است.
+      const minFromConfig = Math.max(500, config.antiDetect.requestDelayMin);
+      const minDelay = Math.max(minFromConfig, 3000);
+      const maxDelay = Math.max(minDelay, config.antiDetect.requestDelayMax);
+      this._nextRequestAt = Date.now() + minDelay + Math.floor(Math.random() * (maxDelay - minDelay + 1));
 
       // Consume rate budget token
       const bucket = mode === 'auth' ? this._authBucket : this._publicBucket;
       await bucket.consume(1);
-
-      if (this._cooldownUntil <= Date.now()) {
-        this._cooldownReason = null;
-        this._backoffIndex = 0; // reset backoff on successful pacing
-      }
     });
     this._requestGate = gate.catch(() => {});
     await gate;
